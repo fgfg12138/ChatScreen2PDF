@@ -1,0 +1,34 @@
+# Byte-compiled
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+venv/
+.env.local
+
+# Build
+dist/
+build/
+*.spec
+
+# Logs
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Test cache
+.pytest_cache/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temp
+*.tmp
+resources/ffmpeg/ffmpeg.exe

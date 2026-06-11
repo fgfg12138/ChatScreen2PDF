@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+"""
+build_exe.py - Build Windows Portable (onedir) via PyInstaller.
+Usage:
+    python scripts/build_exe.py
+    python scripts/build_exe.py --strip-metadata
+
+FFmpeg 准备逻辑：
+  A. 已解压目录：../ffmpeg-8.1.1-essentials_build/bin/ffmpeg.exe
+  B. 本地 ZIP：  ../ffmpeg-8.1.1-essentials_build.zip
+"""
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import zipfile
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+RESOURCES_DIR = PROJECT_ROOT / "resources" / "ffmpeg"
+
+# FFmpeg 来源路径
+FFMPEG_EXTRACTED_DIR = PROJECT_ROOT.parent / "ffmpeg-8.1.1-essentials_build"
+FFMPEG_EXTRACTED_EXE = FFMPEG_EXTRACTED_DIR / "bin" / "ffmpeg.exe"
+FFMPEG_ZIP = PROJECT_ROOT.parent / "ffmpeg-8.1.1-essentials_build.zip"
+
+# Modules to exclude from the Windows build
+EXCLUDE_MODULES = [
+    # OCR (frozen)
+    "paddleocr", "paddlepaddle", "paddle", "paddlex", "paddleocr_predict",
+    "ocrmypdf",
+    # Unused GUI framework
+    "tkinter", "tk", "tcl",
+    # Indirect dependencies not needed
+    "lxml", "dateutil",
+    # Testing (not needed at runtime)
+    "pytest",
+]
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Build ChatScreen2PDF Windows Portable")
+    p.add_argument("--strip-metadata", action="store_true", default=False,
+                    help="Remove *.dist-info from build (may break importlib.metadata)")
+    return p.parse_args()
+
+
+def get_version():
+    vf = PROJECT_ROOT / "__version__.py"
+    m = re.search(r'"([^"]+)"', vf.read_text(encoding="utf-8"))
+    return m.group(1) if m else "unknown"
+
+
+def prepare_ffmpeg():
+    """检测并准备 FFmpeg。优先使用已解压目录，兜底使用 ZIP。"""
+    RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
+    target = RESOURCES_DIR / "ffmpeg.exe"
+
+    if target.exists():
+        print("ffmpeg.exe 已存在: " + str(target))
+        return target
+
+    # A. 已解压目录
+    if FFMPEG_EXTRACTED_EXE.exists():
+        print("检测到已解压 FFmpeg: " + str(FFMPEG_EXTRACTED_EXE))
+        shutil.copy2(str(FFMPEG_EXTRACTED_EXE), str(target))
+        print("已复制到: " + str(target))
+        return target
+
+    # B. 本地 ZIP
+    if FFMPEG_ZIP.exists():
+        print("检测到 FFmpeg ZIP: " + str(FFMPEG_ZIP))
+        print("正在提取 ffmpeg.exe...")
+        with zipfile.ZipFile(str(FFMPEG_ZIP), "r") as zf:
+            candidates = [n for n in zf.namelist()
+                          if n.endswith("ffmpeg.exe") and "ffplay" not in n and "ffprobe" not in n]
+            if not candidates:
+                print("错误：ZIP 中未找到 ffmpeg.exe")
+                sys.exit(1)
+            print("  找到: " + candidates[0])
+            target.write_bytes(zf.read(candidates[0]))
+            print("已提取到: " + str(target))
+        return target
+
+    # 未找到
+    print("错误：未找到 FFmpeg。")
+    print("请确认以下任一位置存在：")
+    print("  1. " + str(FFMPEG_EXTRACTED_EXE))
+    print("  2. " + str(FFMPEG_ZIP))
+    sys.exit(1)
+
+
+def build_exe(strip_metadata=False):
+    version = get_version()
+    dist_name = "ChatScreen2PDF-v" + version + "-windows"
+    dist_dir = PROJECT_ROOT / "dist" / dist_name
+
+    # 清理旧构建，只清理指定目录
+    for d in [PROJECT_ROOT / "build"]:
+        if d.exists():
+            shutil.rmtree(d)
+    if dist_dir.exists():
+        shutil.rmtree(dist_dir)
+    # 也清理 PyInstaller 默认输出
+    default_out = PROJECT_ROOT / "dist" / "ChatScreen2PDF"
+    if default_out.exists():
+        shutil.rmtree(default_out)
+
+    print("Building " + dist_name + "...")
+    print("Excluding: " + ", ".join(EXCLUDE_MODULES))
+
+    cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--noconfirm",
+        "--onedir",
+        "--console",
+        "--name", "ChatScreen2PDF",
+        "--add-data", "resources" + os.pathsep + "resources",
+        "--add-data", "web" + os.pathsep + "web",
+        "--hidden-import", "fastapi",
+        "--hidden-import", "uvicorn",
+        "--hidden-import", "pydantic",
+        "--hidden-import", "multipart",
+        "--hidden-import", "pikepdf",
+        "--hidden-import", "zoneinfo",
+    ]
+    for mod in EXCLUDE_MODULES:
+        cmd += ["--exclude-module", mod]
+    cmd.append("web_app.py")
+
+    result = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+    if result.returncode != 0:
+        print("PyInstaller 失败:")
+        print(result.stderr[-3000:] if len(result.stderr) > 3000 else result.stderr)
+        sys.exit(1)
+
+    # Rename output
+    pyinstaller_out = PROJECT_ROOT / "dist" / "ChatScreen2PDF"
+    if pyinstaller_out.exists():
+        if dist_dir.exists():
+            shutil.rmtree(dist_dir)
+        pyinstaller_out.rename(dist_dir)
+
+    # Optional: strip metadata
+    if strip_metadata:
+        print("正在清理 dist-info 元数据...")
+        removed = 0
+        for d in (dist_dir / "_internal").glob("*.dist-info"):
+            shutil.rmtree(d)
+            removed += 1
+        print("  已清理 " + str(removed) + " 个 dist-info 目录")
+
+    # Copy docs
+    for fname in ["README.md", "CHANGELOG.md", "GUI_MANUAL_TEST.md"]:
+        src = PROJECT_ROOT / fname
+        if src.exists():
+            shutil.copy2(src, dist_dir / fname)
+
+    # Licenses
+    lic_dir = dist_dir / "licenses"
+    lic_dir.mkdir(exist_ok=True)
+    (lic_dir / "FFmpeg-GPL.txt").write_text(
+        "FFmpeg is licensed under GPLv2.\nhttps://www.gnu.org/licenses/old-licenses/gpl-2.0.html\n",
+        encoding="utf-8",
+    )
+
+    # 将 resources/ 从 _internal/ 复制到顶层（PyInstaller onedir 将 --add-data 放入 _internal/）
+    internal_res = dist_dir / "_internal" / "resources"
+    top_res = dist_dir / "resources"
+    if internal_res.exists() and not top_res.exists():
+        shutil.copytree(str(internal_res), str(top_res))
+        print("已复制 resources/ 到顶层")
+    elif not top_res.exists():
+        print("警告：resources/ 未找到，请检查 FFmpeg 准备步骤")
+
+    # 验证核心文件
+    _verify_build(dist_dir)
+
+    # Count files
+    file_count = sum(1 for _ in dist_dir.rglob("*") if _.is_file())
+    total_size_mb = sum(f.stat().st_size for f in dist_dir.rglob("*") if f.is_file()) / 1024 / 1024
+    print("完成: " + str(dist_dir))
+    print("  文件数: " + str(file_count))
+    print("  大小: " + str(round(total_size_mb, 1)) + " MB")
+    return dist_dir
+
+
+def _verify_build(dist_dir):
+    """验证打包产物完整性。"""
+    errors = []
+
+    # 1. EXE 必须存在
+    exe = dist_dir / "ChatScreen2PDF.exe"
+    if not exe.exists():
+        errors.append("ChatScreen2PDF.exe 未生成")
+
+    # 2. ffmpeg 必须存在
+    ffmpeg = dist_dir / "resources" / "ffmpeg" / "ffmpeg.exe"
+    if not ffmpeg.exists():
+        errors.append("resources/ffmpeg/ffmpeg.exe 缺失")
+
+    # 3. 不应包含开发文件
+    dev_patterns = ["tests/", "scripts/", "__pycache__", ".pyc",
+                    ".pytest_cache", "build/"]
+    # 源码 zip 模式 — 只检查顶层和 docs/licenses 目录不出现 .zip
+    source_zips = [".zip"]
+    for f in dist_dir.rglob("*"):
+        if f.is_file():
+            rel = str(f.relative_to(dist_dir))
+            # 跳过 _internal/ 下的文件（PyInstaller 运行时）
+            if rel.startswith("_internal" + os.sep):
+                continue
+            for pat in dev_patterns:
+                if pat in rel:
+                    errors.append("包含不应出现的文件: " + rel)
+                    break
+            for pat in source_zips:
+                if rel.endswith(".zip"):
+                    errors.append("包含不应出现的 zip: " + rel)
+                    break
+
+    if errors:
+        print("验证失败:")
+        for e in errors:
+            print("  - " + e)
+        sys.exit(1)
+    print("打包验证通过。")
+
+
+def build_zip(dist_dir):
+    """将构建产物打包为 zip。"""
+    version = get_version()
+    zip_name = "ChatScreen2PDF-v" + version + "-windows.zip"
+    zip_path = PROJECT_ROOT / "dist" / zip_name
+
+    # 删除旧 zip
+    if zip_path.exists():
+        zip_path.unlink()
+
+    print("打包 ZIP: " + zip_name + "...")
+    with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
+        for file_path in dist_dir.rglob("*"):
+            if file_path.is_file():
+                arcname = str(dist_dir.name / file_path.relative_to(dist_dir))
+                zf.write(str(file_path), arcname)
+
+    count = sum(1 for _ in zipfile.ZipFile(str(zip_path)).namelist())
+    size_kb = zip_path.stat().st_size / 1024
+    print("ZIP 完成: " + zip_name)
+    print("  文件数: " + str(count))
+    print("  大小: " + str(round(size_kb, 1)) + " KB (" + str(round(size_kb / 1024, 1)) + " MB)")
+    return zip_path
+
+
+if __name__ == "__main__":
+    os.chdir(PROJECT_ROOT)
+    args = parse_args()
+    prepare_ffmpeg()
+    dist = build_exe(strip_metadata=args.strip_metadata)
+    build_zip(dist)

@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChatScreen2PDF — 截图生成 PDF</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; }
+.container { max-width: 960px; margin: 0 auto; padding: 20px; }
+
+/* 头部 */
+.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.header h1 { font-size: 22px; }
+.local-badge { background: #2e7d32; color: #fff; padding: 4px 12px; border-radius: 4px; font-size: 13px; }
+
+/* 入口按钮 */
+.entry-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.entry-tabs button { padding: 8px 20px; border: 1px solid #444; background: #2d2d44; color: #aaa; cursor: pointer; border-radius: 4px; font-size: 14px; }
+.entry-tabs button.active { background: #4CAF50; color: #fff; border-color: #4CAF50; font-weight: bold; }
+.entry-tabs button:hover { background: #3a3a55; }
+
+/* 工具栏 */
+.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.btn { padding: 10px 24px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+.btn-primary { background: #4CAF50; color: #fff; font-weight: bold; }
+.btn-primary:hover { background: #45a049; }
+.btn-primary:disabled { background: #666; cursor: not-allowed; }
+.btn-secondary { background: #3a3a55; color: #ddd; }
+.btn-secondary:hover { background: #4a4a6a; }
+.toolbar label { color: #aaa; font-size: 13px; }
+.toolbar select { padding: 6px 10px; background: #2d2d44; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; }
+
+/* 缩略图网格 */
+.thumb-area { background: #16213e; border-radius: 8px; padding: 12px; min-height: 200px; margin-bottom: 16px; }
+.thumb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.thumb-item { background: #1a1a3e; border: 1px solid #333; border-radius: 4px; padding: 6px; text-align: center; }
+.thumb-item img { max-width: 130px; max-height: 130px; display: block; margin: 0 auto; }
+.thumb-item .name { font-size: 11px; color: #999; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thumb-placeholder { color: #555; text-align: center; padding: 60px 20px; font-size: 15px; }
+
+/* 进度 */
+.status-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.status-bar .status-text { color: #aaa; font-size: 14px; }
+.progress-wrap { flex: 1; max-width: 300px; }
+.progress-bar { width: 100%; height: 22px; border-radius: 4px; overflow: hidden; background: #333; }
+.progress-bar .fill { height: 100%; background: linear-gradient(90deg, #4CAF50, #66BB6A); transition: width 0.3s; width: 0%; }
+.progress-text { font-size: 12px; color: #888; min-width: 60px; }
+
+/* 日志 */
+.log-panel { background: #111; border-radius: 4px; padding: 10px; height: 150px; overflow-y: auto; font-family: Consolas, monospace; font-size: 12px; margin-bottom: 12px; }
+.log-panel .line-info { color: #ccc; }
+.log-panel .line-done { color: #88ff88; }
+.log-panel .line-error { color: #ff6666; }
+.log-panel .line-scanning { color: #88ccff; }
+
+/* 下载 */
+.download-area { display: none; margin-bottom: 12px; }
+.download-area.show { display: flex; align-items: center; gap: 12px; }
+.download-link { color: #4CAF50; font-size: 15px; font-weight: bold; text-decoration: none; padding: 8px 20px; border: 2px solid #4CAF50; border-radius: 4px; }
+.download-link:hover { background: #4CAF50; color: #fff; }
+
+/* 错误提示 */
+.error-msg { display: none; background: #5c1a1a; color: #ff8888; padding: 12px; border-radius: 4px; margin-bottom: 12px; }
+.error-msg.show { display: block; }
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- 头部 -->
+  <div class="header">
+    <h1>截图生成 PDF</h1>
+    <span class="local-badge">所有处理仅在本地完成</span>
+  </div>
+
+  <!-- 入口标签 -->
+  <div class="entry-tabs">
+    <button class="active" id="tabScreenshot">截图生成 PDF</button>
+    <button id="tabVideo">视频处理</button>
+    <button id="tabLong">长截图处理</button>
+  </div>
+
+  <!-- 截图生成 PDF 区域 -->
+  <div id="screenshotSection">
+
+  <!-- 工具栏 -->
+  <div class="toolbar">
+    <button class="btn btn-secondary" id="btnSelect">选择图片</button>
+    <input type="file" id="fileInput" multiple accept="image/png,image/jpeg,image/webp" style="display:none">
+
+    <label>标题:</label>
+    <input type="text" id="titleInput" placeholder="自动从文件名生成" style="background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px 10px;width:180px">
+
+    <label>布局:</label>
+    <select id="layoutSelect">
+      <option value="1x1">1×1</option>
+      <option value="1x2">1×2</option>
+      <option value="2x2" selected>2×2</option>
+      <option value="2x3">2×3</option>
+    </select>
+
+    <label>方向:</label>
+    <select id="directionSelect">
+      <option value="lr">左右优先</option>
+      <option value="tb">上下优先</option>
+    </select>
+
+    <label>缩放:</label>
+    <select id="scaleMode">
+      <option value="fit">保留比例完整显示</option>
+      <option value="fill">裁剪填充格子</option>
+    </select>
+
+    <label style="font-size:13px;display:flex;align-items:center;gap:4px">
+      <input type="checkbox" id="showNumber" checked> 编号
+    </label>
+    <label style="font-size:13px;display:flex;align-items:center;gap:4px">
+      <input type="checkbox" id="showPageNumber"> 页码
+    </label>
+  </div>
+
+  <!-- 缩略图 -->
+  <div class="thumb-area">
+    <div class="thumb-grid" id="thumbGrid">
+      <div class="thumb-placeholder" id="thumbPlaceholder">请选择图片</div>
+    </div>
+  </div>
+
+  <!-- 错误提示 -->
+  <div class="error-msg" id="errorMsg"></div>
+
+  <!-- 进度 -->
+  <div class="status-bar">
+    <span class="status-text" id="statusText">请选择图片/视频</span>
+    <div class="progress-wrap" id="progressWrap" style="display:none">
+      <div class="progress-bar"><div class="fill" id="progressFill"></div></div>
+    </div>
+    <span class="progress-text" id="progressText"></span>
+  </div>
+
+  <!-- 生成按钮 -->
+  <button class="btn btn-primary" id="btnGenerate" style="width:100%;padding:14px;font-size:16px;margin-bottom:12px">生成 PDF</button>
+
+  <!-- 下载区域 -->
+  <div class="download-area" id="downloadArea">
+    <span>✅ PDF 生成成功</span>
+    <a class="download-link" id="downloadLink" href="#">下载 PDF</a>
+  </div>
+
+  <!-- 日志 -->
+  <div class="log-panel" id="logPanel"></div>
+</div>
+
+<!-- 长截图处理区域（隐藏） -->
+<div id="longSection" style="display:none">
+  <div class="toolbar">
+    <button class="btn btn-secondary" id="longBtnSelect">选择长截图</button>
+    <input type="file" id="longFileInput" accept="image/png,image/jpeg,image/webp" style="display:none">
+    <label>切片高度:</label>
+    <input type="number" id="sliceHeight" value="3000" min="500" max="10000" style="width:80px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px">
+    <label>重叠:</label>
+    <input type="number" id="overlap" value="150" min="0" max="1000" style="width:70px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px">
+    <label>布局:</label>
+    <select id="longLayout">
+      <option value="1x1">1×1</option>
+      <option value="1x2">1×2</option>
+      <option value="2x2" selected>2×2</option>
+      <option value="2x3">2×3</option>
+    </select>
+    <label>方向:</label>
+    <select id="longDirection">
+      <option value="lr">左右优先</option>
+      <option value="tb">上下优先</option>
+    </select>
+    <label style="font-size:13px;display:flex;align-items:center;gap:4px">
+      <input type="checkbox" id="longShowNumber" checked> 编号
+    </label>
+    <label style="font-size:13px;display:flex;align-items:center;gap:4px">
+      <input type="checkbox" id="longShowPageNumber"> 页码
+    </label>
+  </div>
+
+  <div class="thumb-area" id="longThumbArea">
+    <div id="longThumbPlaceholder" style="color:#555;text-align:center;padding:60px 20px;font-size:15px">请选择长截图</div>
+    <div class="thumb-grid" id="longThumbGrid"></div>
+  </div>
+
+  <div class="error-msg" id="longErrorMsg"></div>
+
+  <div class="status-bar">
+    <span class="status-text" id="longStatusText">请选择长截图</span>
+    <div class="progress-wrap" id="longProgressWrap" style="display:none">
+      <div class="progress-bar"><div class="fill" id="longProgressFill"></div></div>
+    </div>
+    <span class="progress-text" id="longProgressText"></span>
+  </div>
+
+  <button class="btn btn-primary" id="longBtnGenerate" style="width:100%;padding:14px;font-size:16px;margin-bottom:12px">生成 PDF</button>
+
+  <div class="download-area" id="longDownloadArea">
+    <span>✅ PDF 生成成功</span>
+    <a class="download-link" id="longDownloadLink" href="#">下载 PDF</a>
+  </div>
+
+  <div class="log-panel" id="longLogPanel"></div>
+</div>
+
+<!-- 视频处理区域（隐藏） -->
+<div id="videoSection" style="display:none">
+  <div class="toolbar">
+    <button class="btn btn-secondary" id="videoBtnSelect">选择 MP4 视频</button>
+    <input type="file" id="videoFileInput" accept="video/mp4" style="display:none">
+    <label>抽帧间隔(秒):</label>
+    <input type="number" id="videoInterval" value="0.5" min="0.1" max="10" step="0.1" style="width:70px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px">
+    <label>模糊阈值:</label>
+    <input type="number" id="blurThreshold" value="30" min="0" max="200" step="1" style="width:60px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px">
+    <label>去重阈值:</label>
+    <input type="number" id="dedupThreshold" value="10" min="1" max="50" style="width:60px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px">
+    <label style="font-size:13px;display:flex;align-items:center;gap:4px">
+      <input type="checkbox" id="globalDedup"> 全局去重
+    </label>
+    <label>布局:</label>
+    <select id="videoLayout"><option value="1x1">1×1</option><option value="1x2">1×2</option><option value="2x2" selected>2×2</option><option value="2x3">2×3</option></select>
+    <label style="font-size:13px;display:flex;align-items:center;gap:4px">
+      <input type="checkbox" id="videoShowNumber" checked> 编号
+    </label>
+  </div>
+
+  <div class="thumb-area" id="videoThumbArea">
+    <div id="videoThumbPlaceholder" style="color:#555;text-align:center;padding:60px 20px;font-size:15px">请选择 MP4 视频</div>
+    <div class="thumb-grid" id="videoThumbGrid"></div>
+  </div>
+
+  <div class="error-msg" id="videoErrorMsg"></div>
+  <div class="status-bar">
+    <span class="status-text" id="videoStatusText">请选择 MP4 视频</span>
+    <div class="progress-wrap" id="videoProgressWrap" style="display:none">
+      <div class="progress-bar"><div class="fill" id="videoProgressFill"></div></div>
+    </div>
+    <span class="progress-text" id="videoProgressText"></span>
+  </div>
+
+  <button class="btn btn-primary" id="videoBtnGenerate" style="width:100%;padding:14px;font-size:16px;margin-bottom:12px">生成 PDF</button>
+
+  <div class="download-area" id="videoDownloadArea">
+    <span>✅ PDF 生成成功</span>
+    <a class="download-link" id="videoDownloadLink" href="#">下载 PDF</a>
+  </div>
+  <div class="log-panel" id="videoLogPanel"></div>
+</div>
+
+<script>
+(function() {
+  // ── DOM ──
+  const fileInput = document.getElementById('fileInput');
+  const btnSelect = document.getElementById('btnSelect');
+  const btnGenerate = document.getElementById('btnGenerate');
+  const thumbGrid = document.getElementById('thumbGrid');
+  const thumbPlaceholder = document.getElementById('thumbPlaceholder');
+  const scaleMode = document.getElementById('scaleMode');
+  const titleInput = document.getElementById('titleInput');
+  const layoutSelect = document.getElementById('layoutSelect');
+  const directionSelect = document.getElementById('directionSelect');
+  const showNumber = document.getElementById('showNumber');
+  const showPageNumber = document.getElementById('showPageNumber');
+  const statusText = document.getElementById('statusText');
+  const progressWrap = document.getElementById('progressWrap');
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+  const logPanel = document.getElementById('logPanel');
+  const errorMsg = document.getElementById('errorMsg');
+  const downloadArea = document.getElementById('downloadArea');
+  const downloadLink = document.getElementById('downloadLink');
+
+  // 入口按钮
+  const tabScreenshot = document.getElementById('tabScreenshot');
+  const tabVideo = document.getElementById('tabVideo');
+  const tabLong = document.getElementById('tabLong');
+
+  // 隐藏的长截图区域
+  const longSection = document.getElementById('longSection');
+
+  tabScreenshot.addEventListener('click', () => {
+    tabScreenshot.classList.add('active');
+    tabVideo.classList.remove('active');
+    tabLong.classList.remove('active');
+    longSection.style.display = 'none';
+    document.getElementById('screenshotSection').style.display = 'block';
+  });
+
+  tabLong.addEventListener('click', () => {
+    tabLong.classList.add('active');
+    tabScreenshot.classList.remove('active');
+    tabVideo.classList.remove('active');
+    document.getElementById('screenshotSection').style.display = 'none';
+    longSection.style.display = 'block';
+  });
+
+  tabVideo.addEventListener('click', () => {
+    tabVideo.classList.add('active');
+    tabScreenshot.classList.remove('active');
+    tabLong.classList.remove('active');
+    document.getElementById('screenshotSection').style.display = 'none';
+    longSection.style.display = 'none';
+    document.getElementById('videoSection').style.display = 'block';
+  });
+
+  // ── 状态 ──
+  let selectedFiles = [];     // File 对象列表
+  let polling = null;
+  let jobRunning = false;
+
+  // ── 选择图片 ──
+  btnSelect.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (!fileInput.files || fileInput.files.length === 0) return;
+    selectedFiles = Array.from(fileInput.files);
+    fileInput.value = '';
+    renderThumbnails();
+    clearJob();
+    statusText.textContent = `已选择: ${selectedFiles.length} 张图片`;
+    addLog('info', `已选择 ${selectedFiles.length} 张图片`);
+  });
+
+  // ── 渲染缩略图（含删除+拖拽排序） ──
+  function renderThumbnails() {
+    const ph = thumbGrid.querySelector('.thumb-placeholder');
+    if (ph) ph.remove();
+    const items = thumbGrid.querySelectorAll('.thumb-item');
+    items.forEach(el => el.remove());
+
+    if (selectedFiles.length === 0) {
+      thumbGrid.innerHTML = '<div class="thumb-placeholder">请选择图片</div>';
+      return;
+    }
+
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
+      const div = document.createElement('div');
+      div.className = 'thumb-item';
+      div.draggable = true;
+      div.dataset.index = i;
+
+      // 拖拽事件
+      div.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', i);
+        div.style.opacity = '0.5';
+      });
+      div.addEventListener('dragend', () => { div.style.opacity = '1'; });
+      div.addEventListener('dragover', (e) => { e.preventDefault(); });
+      div.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const from = parseInt(e.dataTransfer.getData('text/plain'));
+        const to = i;
+        if (from !== to) {
+          const item = selectedFiles.splice(from, 1)[0];
+          selectedFiles.splice(to, 0, item);
+          renderThumbnails();
+          statusText.textContent = `已选择: ${selectedFiles.length} 张图片`;
+          addLog('info', `已调整图片顺序: ${from+1} → ${to+1}`);
+        }
+      });
+
+      // 缩略图
+      const img = document.createElement('img');
+      img.alt = file.name;
+      img.style.cursor = 'grab';
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const imgEl = new Image();
+        imgEl.onload = () => {
+          const maxSize = 130;
+          let w = imgEl.width, h = imgEl.height;
+          if (w > h) { if (w > maxSize) { h = h * maxSize / w; w = maxSize; } }
+          else { if (h > maxSize) { w = w * maxSize / h; h = maxSize; } }
+          canvas.width = w; canvas.height = h;
+          ctx.drawImage(imgEl, 0, 0, w, h);
+          img.src = canvas.toDataURL('image/jpeg', 0.7);
+        };
+        imgEl.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+
+      // 编号标签
+      const numLabel = document.createElement('div');
+      numLabel.style.cssText = 'position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.7);color:#fff;font-size:11px;padding:1px 5px;border-radius:3px;';
+      numLabel.textContent = i + 1;
+      div.style.position = 'relative';
+
+      // 删除按钮
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '×';
+      delBtn.style.cssText = 'position:absolute;top:2px;left:2px;background:rgba(200,0,0,0.8);color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:14px;width:20px;height:20px;line-height:18px;text-align:center;';
+      delBtn.title = '删除';
+      delBtn.addEventListener('click', () => {
+        selectedFiles.splice(i, 1);
+        renderThumbnails();
+        statusText.textContent = selectedFiles.length > 0 ? `已选择: ${selectedFiles.length} 张图片` : '请选择图片/视频';
+        addLog('info', `已删除: ${file.name}`);
+        if (selectedFiles.length === 0) btnGenerate.disabled = false;
+      });
+
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = file.name;
+
+      div.appendChild(numLabel);
+      div.appendChild(delBtn);
+      div.appendChild(img);
+      div.appendChild(name);
+      thumbGrid.appendChild(div);
+    }
+  }
+
+  // ── 日志 ──
+  function addLog(stage, msg) {
+    const p = document.createElement('div');
+    p.className = 'line-' + (stage === 'done' || stage === 'success' ? 'done' : stage === 'error' ? 'error' : stage === 'scanning' ? 'scanning' : 'info');
+    p.textContent = msg;
+    logPanel.appendChild(p);
+    logPanel.scrollTop = logPanel.scrollHeight;
+  }
+
+  function clearLogs() {
+    logPanel.innerHTML = '';
+  }
+
+  // ── 进度 ──
+  function setProgress(current, total) {
+    if (total > 0) {
+      progressWrap.style.display = 'block';
+      const pct = Math.round(current / total * 100);
+      progressFill.style.width = pct + '%';
+      progressText.textContent = `${current} / ${total}`;
+    }
+  }
+
+  function hideProgress() {
+    progressWrap.style.display = 'none';
+    progressFill.style.width = '0%';
+    progressText.textContent = '';
+  }
+
+  // ── 错误 ──
+  function showError(msg) {
+    errorMsg.textContent = msg;
+    errorMsg.classList.add('show');
+  }
+
+  function hideError() {
+    errorMsg.classList.remove('show');
+    errorMsg.textContent = '';
+  }
+
+  // ── 下载 ──
+  function showDownload(jobId) {
+    downloadArea.classList.add('show');
+    downloadLink.href = `/api/pdf/jobs/${jobId}/download`;
+  }
+
+  function hideDownload() {
+    downloadArea.classList.remove('show');
+    downloadLink.href = '#';
+  }
+
+  // ── 清除任务 ──
+  function clearJob() {
+    if (polling) { clearInterval(polling); polling = null; }
+    jobRunning = false;
+    hideProgress();
+    hideDownload();
+    hideError();
+    btnGenerate.disabled = false;
+    btnGenerate.textContent = '生成 PDF';
+    statusText.textContent = selectedFiles.length > 0 ? `已选择: ${selectedFiles.length} 张图片` : '请选择图片/视频';
+  }
+
+  // ── 轮询任务状态 ──
+  function pollJob(jobId) {
+    if (polling) clearInterval(polling);
+    polling = setInterval(async () => {
+      try {
+        const resp = await fetch(`/api/pdf/jobs/${jobId}`);
+        if (!resp.ok) throw new Error('查询状态失败');
+        const data = await resp.json();
+
+        setProgress(data.current, data.total);
+        statusText.textContent = data.status === 'processing' ? `正在处理 ${data.current}/${data.total}` :
+                                 data.status === 'done' ? 'PDF 生成成功' :
+                                 data.status === 'error' ? '生成失败' : '等待中...';
+
+        // 清空日志并重绘（避免重复累积）
+        if (data.logs && data.logs.length > 0) {
+          logPanel.innerHTML = '';
+          for (const [stage, msg] of data.logs) {
+            addLog(stage, msg);
+          }
+        }
+
+        if (data.status === 'done') {
+          if (polling) { clearInterval(polling); polling = null; }
+          jobRunning = false;
+          btnGenerate.disabled = false;
+          btnGenerate.textContent = '生成 PDF';
+          showDownload(jobId);
+        } else if (data.status === 'error') {
+          if (polling) { clearInterval(polling); polling = null; }
+          jobRunning = false;
+          btnGenerate.disabled = false;
+          btnGenerate.textContent = '生成 PDF';
+          showError('PDF 生成失败: ' + data.error);
+        }
+      } catch (e) {
+        console.error('Poll error:', e);
+      }
+    }, 500);
+  }
+
+  // ── 生成 PDF ──
+  btnGenerate.addEventListener('click', async () => {
+    if (jobRunning) return;
+
+    if (selectedFiles.length === 0) {
+      alert('请选择图片/视频');
+      return;
+    }
+
+    hideError();
+    hideDownload();
+    clearLogs();
+    jobRunning = true;
+    btnGenerate.disabled = true;
+    btnGenerate.textContent = '正在生成...';
+    statusText.textContent = '正在上传...';
+
+    const formData = new FormData();
+    for (const f of selectedFiles) {
+      formData.append('files', f, f.name);
+    }
+    formData.append('scale_mode', scaleMode.value);
+    formData.append('layout', layoutSelect.value);
+    formData.append('direction', directionSelect.value);
+    formData.append('title', titleInput.value);
+    formData.append('show_number', showNumber.checked ? 'true' : 'false');
+    formData.append('show_page_number', showPageNumber.checked ? 'true' : 'false');
+
+    try {
+      const resp = await fetch('/api/pdf/jobs', { method: 'POST', body: formData });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || '创建任务失败');
+      }
+      const data = await resp.json();
+      addLog('info', `已上传 ${data.total} 张图片`);
+      addLog('info', `任务已创建: ${data.job_id}`);
+
+      // 开始轮询
+      pollJob(data.job_id);
+    } catch (e) {
+      showError('上传失败: ' + e.message);
+      jobRunning = false;
+      btnGenerate.disabled = false;
+      btnGenerate.textContent = '生成 PDF';
+      statusText.textContent = '生成失败';
+    }
+  });
+})();
+
+// ── 长截图处理 ──
+(function() {
+  const fileInput = document.getElementById('longFileInput');
+  const btnSelect = document.getElementById('longBtnSelect');
+  const btnGenerate = document.getElementById('longBtnGenerate');
+  const thumbGrid = document.getElementById('longThumbGrid');
+  const placeholder = document.getElementById('longThumbPlaceholder');
+  const sliceHeight = document.getElementById('sliceHeight');
+  const overlap = document.getElementById('overlap');
+  const statusText = document.getElementById('longStatusText');
+  const progressWrap = document.getElementById('longProgressWrap');
+  const progressFill = document.getElementById('longProgressFill');
+  const progressText = document.getElementById('longProgressText');
+  const logPanel = document.getElementById('longLogPanel');
+  const errorMsg = document.getElementById('longErrorMsg');
+  const downloadArea = document.getElementById('longDownloadArea');
+  const downloadLink = document.getElementById('longDownloadLink');
+
+  let jobId = null;
+  let polling = null;
+  let jobRunning = false;
+
+  function addLog(stage, msg) {
+    const p = document.createElement('div');
+    p.className = 'line-' + (stage === 'done' ? 'done' : stage === 'error' ? 'error' : 'info');
+    p.textContent = msg;
+    logPanel.appendChild(p);
+    logPanel.scrollTop = logPanel.scrollHeight;
+  }
+
+  function clearLogs() { logPanel.innerHTML = ''; }
+  function showError(msg) { errorMsg.textContent = msg; errorMsg.classList.add('show'); }
+  function hideError() { errorMsg.classList.remove('show'); }
+  function hideDownload() { downloadArea.classList.remove('show'); downloadLink.href = '#'; }
+  function setProgress(cur, total) {
+    if (total > 0) { progressWrap.style.display = 'block';
+      progressFill.style.width = Math.round(cur/total*100)+'%';
+      progressText.textContent = cur+'/'+total; }
+  }
+
+  btnSelect.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (!fileInput.files || fileInput.files.length === 0) return;
+    const file = fileInput.files[0];
+    fileInput.value = '';
+    hideError(); hideDownload(); clearLogs();
+    jobRunning = true;
+    btnGenerate.disabled = true;
+    statusText.textContent = '正在上传...';
+    placeholder.style.display = 'none';
+
+    statusText.textContent = '正在上传并切片...';
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('slice_height', sliceHeight.value);
+    formData.append('overlap', overlap.value);
+
+    fetch('/api/long/jobs', { method: 'POST', body: formData })
+      .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail); }))
+      .then(data => {
+        jobId = data.job_id;
+        addLog('info', '已上传: ' + data.filename);
+        pollLongJob(jobId);
+      })
+      .catch(e => { showError('上传失败: ' + e.message); jobRunning = false; btnGenerate.disabled = false; });
+  });
+
+  function pollLongJob(id) {
+    if (polling) clearInterval(polling);
+    polling = setInterval(() => {
+      fetch('/api/long/jobs/' + id)
+        .then(r => r.json())
+        .then(data => {
+          setProgress(data.current, data.total);
+          statusText.textContent = data.status === 'processing' ? '正在切片...' :
+            data.status === 'done' ? '切片完成' : data.status === 'error' ? '切片失败' : '';
+          if (data.logs && data.logs.length > 0) {
+            logPanel.innerHTML = '';
+            for (const [stage, msg] of data.logs) addLog(stage, msg);
+          }
+          if (data.status === 'done') {
+            if (polling) clearInterval(polling); polling = null;
+            jobRunning = false;
+            btnGenerate.disabled = false;
+            btnGenerate.textContent = '生成 PDF';
+            // 显示切片缩略图（这里简化：只显示切片数量）
+            addLog('done', '共 ' + data.total + ' 个切片');
+            // 显示缩略图
+            thumbGrid.innerHTML = '';
+            placeholder.style.display = 'none';
+            data.slices.forEach((name, i) => {
+              const div = document.createElement('div'); div.className = 'thumb-item';
+              const label = document.createElement('div'); label.className = 'name';
+              label.textContent = '切片 ' + (i+1) + ': ' + name;
+              div.appendChild(label); thumbGrid.appendChild(div);
+            });
+          } else if (data.status === 'error') {
+            if (polling) clearInterval(polling); polling = null;
+            jobRunning = false;
+            btnGenerate.disabled = false;
+            showError('切片失败: ' + data.error);
+          }
+        });
+    }, 500);
+  }
+
+  btnGenerate.addEventListener('click', () => {
+    if (jobRunning || !jobId) return;
+    jobRunning = true;
+    btnGenerate.disabled = true;
+    btnGenerate.textContent = '正在生成 PDF...';
+    hideError(); hideDownload();
+
+    const formData = new FormData();
+    formData.append('layout', document.getElementById('longLayout').value);
+    formData.append('direction', document.getElementById('longDirection').value);
+    formData.append('scale_mode', 'fit');
+    formData.append('show_number', document.getElementById('longShowNumber').checked ? 'true' : 'false');
+    formData.append('show_page_number', document.getElementById('longShowPageNumber').checked ? 'true' : 'false');
+
+    fetch('/api/long/jobs/' + jobId + '/pdf', { method: 'POST', body: formData })
+      .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail); }))
+      .then(data => {
+        if (data.status === 'pdf_done') {
+          addLog('done', 'PDF 生成成功');
+          statusText.textContent = 'PDF 生成成功';
+          downloadArea.classList.add('show');
+          downloadLink.href = '/api/long/jobs/' + jobId + '/download';
+          btnGenerate.disabled = false;
+          btnGenerate.textContent = '重新生成 PDF';
+        } else {
+          showError('生成失败');
+        }
+        jobRunning = false;
+      })
+      .catch(e => { showError('生成失败: ' + e.message); jobRunning = false; btnGenerate.disabled = false; });
+  });
+})();
+
+// ── 视频处理 ──
+(function() {
+  const fileInput = document.getElementById('videoFileInput');
+  const btnSelect = document.getElementById('videoBtnSelect');
+  const btnGenerate = document.getElementById('videoBtnGenerate');
+  const statusText = document.getElementById('videoStatusText');
+  const progressWrap = document.getElementById('videoProgressWrap');
+  const progressFill = document.getElementById('videoProgressFill');
+  const progressText = document.getElementById('videoProgressText');
+  const logPanel = document.getElementById('videoLogPanel');
+  const errorMsg = document.getElementById('videoErrorMsg');
+  const downloadArea = document.getElementById('videoDownloadArea');
+  const downloadLink = document.getElementById('videoDownloadLink');
+
+  let jobId = null, polling = null, jobRunning = false;
+
+  function addLog(s, m) { const p=document.createElement('div'); p.className='line-'+s; p.textContent=m; logPanel.appendChild(p); logPanel.scrollTop=logPanel.scrollHeight; }
+  function clearLogs() { logPanel.innerHTML=''; }
+  function showError(m) { errorMsg.textContent=m; errorMsg.classList.add('show'); }
+  function hideError() { errorMsg.classList.remove('show'); }
+  function setProgress(c,t) { if(t>0){progressWrap.style.display='block';progressFill.style.width=Math.round(c/t*100)+'%';progressText.textContent=c+'/'+t;} }
+
+  btnSelect.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (!fileInput.files || !fileInput.files[0]) return;
+    const file = fileInput.files[0]; fileInput.value='';
+    hideError(); clearLogs(); jobRunning=true; btnGenerate.disabled=true;
+    statusText.textContent='正在上传...';
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('interval', document.getElementById('videoInterval').value);
+    fd.append('blur_threshold', document.getElementById('blurThreshold').value);
+    fd.append('dedup_threshold', document.getElementById('dedupThreshold').value);
+    fd.append('global_dedup', document.getElementById('globalDedup').checked ? 'true' : 'false');
+    fetch('/api/video/jobs', {method:'POST',body:fd})
+      .then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.detail)}))
+      .then(d=>{jobId=d.job_id; addLog('info','已上传: '+d.filename); pollVideo(d.job_id);})
+      .catch(e=>{showError('上传失败: '+e.message);jobRunning=false;btnGenerate.disabled=false;});
+  });
+
+  function pollVideo(id) {
+    if(polling) clearInterval(polling);
+    polling=setInterval(()=>{
+      fetch('/api/video/jobs/'+id).then(r=>r.json()).then(d=>{
+        setProgress(d.current,d.total);
+        statusText.textContent=d.status==='processing'?'处理中...':d.status==='done'?'处理完成':'';
+        if(d.logs&&d.logs.length){logPanel.innerHTML='';for(const[s,m]of d.logs)addLog(s,m);}
+        if(d.status==='done'){if(polling)clearInterval(polling);polling=null;jobRunning=false;btnGenerate.disabled=false;
+          addLog('done','保留 '+d.total+' 帧');}
+        else if(d.status==='error'){if(polling)clearInterval(polling);polling=null;jobRunning=false;btnGenerate.disabled=false;showError('处理失败: '+d.error);}
+      });
+    },500);
+  }
+
+  btnGenerate.addEventListener('click',()=>{
+    if(jobRunning||!jobId)return;jobRunning=true;btnGenerate.disabled=true;btnGenerate.textContent='正在生成...';
+    hideError();hideDownload();
+    const fd=new FormData();
+    fd.append('layout',document.getElementById('videoLayout').value);
+    fd.append('show_number',document.getElementById('videoShowNumber').checked?'true':'false');
+    fd.append('show_page_number','false');
+    fetch('/api/video/jobs/'+jobId+'/pdf',{method:'POST',body:fd})
+      .then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.detail)}))
+      .then(d=>{if(d.status==='pdf_done'){addLog('done','PDF 生成成功');statusText.textContent='PDF 生成成功';downloadArea.classList.add('show');downloadLink.href='/api/video/jobs/'+jobId+'/download';btnGenerate.disabled=false;btnGenerate.textContent='重新生成 PDF';}else showError('生成失败');jobRunning=false;})
+      .catch(e=>{showError('生成失败: '+e.message);jobRunning=false;btnGenerate.disabled=false;});
+  });
+  function hideDownload(){downloadArea.classList.remove('show');downloadLink.href='#';}
+})();
+</script>
+</body>
+</html>
