@@ -214,6 +214,8 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
     <input type="number" id="videoInterval" value="0.5" min="0.1" max="10" step="0.1" style="width:60px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px">
     <label>模糊:</label>
     <input type="number" id="blurThreshold" value="30" min="0" max="200" step="1" style="width:50px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px">
+    <label>去重:</label>
+    <input type="number" id="dedupThreshold" value="10" min="1" max="50" style="width:50px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px">
     <label style="font-size:13px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="globalDedup"> 全局去重</label>
     <label>布局:</label>
     <select id="videoLayout" style="width:70px"><option value="1x1">1×1</option><option value="1x2">1×2</option><option value="2x2" selected>2×2</option><option value="2x3">2×3</option></select>
@@ -792,44 +794,78 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
   });
 })();
 
-// ── 视频处理 ──
-(function() {
-  const F=document.getElementById('videoFileInput'),B=document.getElementById('videoBtnSelect'),G=document.getElementById('videoBtnGenerate'),LR=document.getElementById('videoBtnLoadRef'),CR=document.getElementById('videoBtnClearRegion'),TG=document.getElementById('videoThumbGrid'),PH=document.getElementById('videoThumbPlaceholder'),ST=document.getElementById('videoStatusText'),PW=document.getElementById('videoProgressWrap'),PF=document.getElementById('videoProgressFill'),PT=document.getElementById('videoProgressText'),LP=document.getElementById('videoLogPanel'),EM=document.getElementById('videoErrorMsg'),DA=document.getElementById('videoDownloadArea'),DL=document.getElementById('videoDownloadLink'),OS=document.getElementById('ocrStatus'),RC=document.getElementById('regionCoords'),RF=document.getElementById('refFrame'),RCA=document.getElementById('refCanvas'),EW=document.getElementById('excludeWords');
-  let J=null,PO=null,JR=false,FN=[];let OR=null,RW=0,RH=0,DR=false,DSX=0,DSY=0;
-  function AL(s,m){const p=document.createElement('div');p.className='line-'+s;p.textContent=m;LP.appendChild(p);LP.scrollTop=LP.scrollHeight;}
-  function CL(){LP.innerHTML='';}function SE(m){EM.textContent=m;EM.classList.add('show');}function HE(){EM.classList.remove('show');}
-  function HD(){DA.classList.remove('show');DL.href='#';}function SP(c,t){if(t>0){PW.style.display='block';PF.style.width=Math.round(c/t*100)+'%';PT.textContent=c+'/'+t;}}
-  LR.addEventListener('click',()=>{if(!J){SE('请先上传视频');return;}HE();fetch('/api/video/reference-frame',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'job_id='+encodeURIComponent(J)}).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.detail||'加载失败')})).then(d=>{RW=d.width;RH=d.height;RF.src=d.preview_url+'?t='+Date.now();document.getElementById('refFrameContainer').style.display='block';RF.onload=()=>{const c=RCA.getContext('2d');c.clearRect(0,0,RCA.width,RCA.height);};AL('info','参考帧加载成功 ('+d.width+'x'+d.height+')');}).catch(e=>SE('参考帧加载失败: '+e.message));});
-  RF.addEventListener('mousedown',e=>{if(!RW)return;const r=RF.getBoundingClientRect();const sx=RW/r.width,sy=RH/r.height;DR=true;DSX=(e.clientX-r.left)*sx;DSY=(e.clientY-r.top)*sy;});
-  document.addEventListener('mousemove',e=>{if(!DR)return;const r=RF.getBoundingClientRect();const sx=RW/r.width,sy=RH/r.height;const cx=Math.max(0,Math.min((e.clientX-r.left)*sx,RW)),cy=Math.max(0,Math.min((e.clientY-r.top)*sy,RH));const x=Math.min(DSX,cx),y=Math.min(DSY,cy),w=Math.abs(cx-DSX),h=Math.abs(cy-DSY);if(w>5&&h>5){OR={x:Math.round(x),y:Math.round(y),width:Math.round(w),height:Math.round(h)};drawR();RC.textContent='x='+OR.x+' y='+OR.y+' w='+OR.width+' h='+OR.height;}});
-  document.addEventListener('mouseup',()=>{DR=false;});
-  function drawR(){if(!OR||!RW)return;const r=RF.getBoundingClientRect();const sx=r.width/RW,sy=r.height/RH;RCA.width=r.width;RCA.height=r.height;const c=RCA.getContext('2d');c.clearRect(0,0,r.width,r.height);c.fillStyle='rgba(0,0,0,0.3)';c.fillRect(0,0,r.width,r.height);c.clearRect(OR.x*sx,OR.y*sy,OR.width*sx,OR.height*sy);c.strokeStyle='#4CAF50';c.lineWidth=2;c.strokeRect(OR.x*sx,OR.y*sy,OR.width*sx,OR.height*sy);}
-  CR.addEventListener('click',()=>{OR=null;RC.textContent='未选择区域';const c=RCA.getContext('2d');c.clearRect(0,0,RCA.width,RCA.height);});
-  function RV(fn,dt){FN=fn;TG.innerHTML='';PH.style.display='none';if(dt&&dt.length>0){const a=dt[0].ocr_available;OS.textContent=a?'OCR 已启用，使用文本连续性判断':'OCR 未启用，使用图像去重';OS.style.color=a?'#88ff88':'#888';}
-    fn.forEach((n,i)=>{const d=dt?dt[i]:null;const dv=document.createElement('div');dv.className='thumb-item';dv.draggable=true;dv.dataset.index=i;dv.style.position='relative';
-      dv.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/plain',i);dv.style.opacity='0.5';});
-      dv.addEventListener('dragend',()=>{dv.style.opacity='1';});
-      dv.addEventListener('dragover',e=>{e.preventDefault();});
-      dv.addEventListener('drop',e=>{e.preventDefault();const fr=parseInt(e.dataTransfer.getData('text/plain'));const to=i;if(fr!==to){const it=FN.splice(fr,1)[0];FN.splice(to,0,it);RV(FN,dt);AL('info','已调整帧顺序: '+(fr+1)+' → '+(to+1));}});
-      const im=document.createElement('img');im.src='/api/files/'+J+'/frames/'+n;im.alt=n;im.style.cursor='grab';im.onerror=function(){im.src='';im.alt='加载失败';};
-      const nl=document.createElement('div');nl.style.cssText='position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.7);color:#fff;font-size:11px;padding:1px 5px;border-radius:3px;';nl.textContent=i+1;
-      const db=document.createElement('button');db.textContent='×';db.style.cssText='position:absolute;top:2px;left:2px;background:rgba(200,0,0,0.8);color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:14px;width:20px;height:20px;line-height:18px;text-align:center;';db.title='删除';db.addEventListener('click',()=>{FN.splice(i,1);RV(FN,dt);AL('info','已删除帧: '+n);ST.textContent='剩余 '+FN.length+' 帧';});
-      const nm=document.createElement('div');nm.className='name';nm.textContent='#'+(i+1)+' '+n;
-      dv.appendChild(nl);dv.appendChild(db);dv.appendChild(im);dv.appendChild(nm);
-      if(d&&d.reason){const r=document.createElement('div');r.className='frame-reason '+(d.status||'');let t=d.reason;if(d.warning)t='⚠ '+d.warning;if(d.ocr_text_count>0)t+=' ['+d.ocr_text_count+'行]';r.textContent=t;dv.appendChild(r);}
-      TG.appendChild(dv);});
-  }
-  B.addEventListener('click',()=>F.click());
-  F.addEventListener('change',()=>{if(!F.files||!F.files[0])return;const fi=F.files[0];F.value='';HE();HD();CL();JR=true;G.disabled=true;ST.textContent='正在上传...';OS.textContent='';OR=null;RC.textContent='未选择区域';document.getElementById('refFrameContainer').style.display='none';
-    const fd=new FormData();fd.append('file',fi);fd.append('interval',document.getElementById('videoInterval').value);fd.append('blur_threshold',document.getElementById('blurThreshold').value);fd.append('dedup_threshold',document.getElementById('dedupThreshold').value);fd.append('global_dedup',document.getElementById('globalDedup').checked?'true':'false');
-    if(OR){fd.append('ocr_region_x',OR.x);fd.append('ocr_region_y',OR.y);fd.append('ocr_region_w',OR.width);fd.append('ocr_region_h',OR.height);}
-    fd.append('exclude_words',EW.value||'');
-    fetch('/api/video/jobs',{method:'POST',body:fd}).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.detail)})).then(d=>{J=d.job_id;AL('info','已上传: '+d.filename);PV(d.job_id);}).catch(e=>{SE('上传失败: '+e.message);JR=false;G.disabled=false;});
-  });
-  function PV(id){if(PO)clearInterval(PO);PO=setInterval(()=>{fetch('/api/video/jobs/'+id).then(r=>r.json()).then(d=>{SP(d.current,d.total);ST.textContent=d.status==='processing'?'处理中...':d.status==='done'?'处理完成 '+d.total+' 帧':'';if(d.logs&&d.logs.length){LP.innerHTML='';for(const[s,m]of d.logs)AL(s,m);}if(d.status==='done'){if(PO)clearInterval(PO);PO=null;JR=false;G.disabled=false;RV(d.frames,d.frame_details);AL('done','保留 '+d.total+' 帧，可删除/拖拽排序后生成 PDF');}else if(d.status==='error'){if(PO)clearInterval(PO);PO=null;JR=false;G.disabled=false;SE('处理失败: '+d.error);}});},500);}
-  G.addEventListener('click',()=>{if(JR||!J)return;JR=true;G.disabled=true;G.textContent='正在生成...';HE();HD();fetch('/api/video/jobs/'+J+'/frames',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({filenames:FN})}).then(()=>{const fd=new FormData();fd.append('layout',document.getElementById('videoLayout').value);fd.append('show_number',document.getElementById('videoShowNumber').checked?'true':'false');fd.append('show_page_number','false');return fetch('/api/video/jobs/'+J+'/pdf',{method:'POST',body:fd});}).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.detail)})).then(d=>{if(d.status==='pdf_done'){AL('done','PDF 生成成功');ST.textContent='PDF 生成成功';DA.classList.add('show');DL.href='/api/video/jobs/'+J+'/download';G.disabled=false;G.textContent='重新生成 PDF';}else SE('生成失败');JR=false;}).catch(e=>{SE('生成失败: '+e.message);JR=false;G.disabled=false;});});
+// ── 视频处理（正确流程：选择→参考帧→框选→手动处理）──
+(function(){
+var FI=document.getElementById('videoFileInput'),BS=document.getElementById('videoBtnSelect'),BG=document.getElementById('videoBtnGenerate'),LR=document.getElementById('videoBtnLoadRef'),CR=document.getElementById('videoBtnClearRegion'),TG=document.getElementById('videoThumbGrid'),PH=document.getElementById('videoThumbPlaceholder'),ST=document.getElementById('videoStatusText'),PW=document.getElementById('videoProgressWrap'),PF=document.getElementById('videoProgressFill'),PT=document.getElementById('videoProgressText'),LP=document.getElementById('videoLogPanel'),EM=document.getElementById('videoErrorMsg'),DA=document.getElementById('videoDownloadArea'),DL=document.getElementById('videoDownloadLink'),OS=document.getElementById('ocrStatus'),RC=document.getElementById('regionCoords'),RF=document.getElementById('refFrame'),RCA=document.getElementById('refCanvas'),EW=document.getElementById('excludeWords');
+var sf=null,dj=null,J=null,PO=null,JR=false,FN=[],OR=null,RW=0,RH=0,DR=false,DSX=0,DSY=0;
+function al(s,m){var p=document.createElement('div');p.className='line-'+s;p.textContent=m;LP.appendChild(p);LP.scrollTop=LP.scrollHeight;}
+function cl(){LP.innerHTML='';}function se(m){EM.textContent=m;EM.classList.add('show');}function he(){EM.classList.remove('show');}function hd(){DA.classList.remove('show');DL.href='#';}
+function sp(c,t){if(t>0){PW.style.display='block';PF.style.width=Math.round(c/t*100)+'%';PT.textContent=c+'/'+t;}}
+
+LR.addEventListener('click',function(){
+ if(!sf){se('请先选择 MP4 视频');return;}he();var fd=new FormData();fd.append('file',sf);
+ fetch('/api/video/draft',{method:'POST',body:fd}).then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail||'');});})
+ .then(function(d){dj=d.job_id;return fetch('/api/video/reference-frame',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'job_id='+encodeURIComponent(dj)});})
+ .then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail||'');});})
+ .then(function(d){RW=d.width;RH=d.height;RF.src=d.preview_url+'?t='+Date.now();document.getElementById('refFrameContainer').style.display='block';RF.onload=function(){RCA.getContext('2d').clearRect(0,0,RCA.width,RCA.height);};al('info','参考帧加载成功 ('+d.width+'x'+d.height+')');})
+ .catch(function(e){se('参考帧失败: '+e.message);});
+});
+
+RF.addEventListener('mousedown',function(e){if(!RW)return;var r=RF.getBoundingClientRect(),sx=RW/r.width,sy=RH/r.height;DR=true;DSX=(e.clientX-r.left)*sx;DSY=(e.clientY-r.top)*sy;});
+document.addEventListener('mousemove',function(e){if(!DR)return;var r=RF.getBoundingClientRect(),sx=RW/r.width,sy=RH/r.height,cx=Math.max(0,Math.min((e.clientX-r.left)*sx,RW)),cy=Math.max(0,Math.min((e.clientY-r.top)*sy,RH)),x=Math.min(DSX,cx),y=Math.min(DSY,cy),w=Math.abs(cx-DSX),h=Math.abs(cy-DSY);if(w>5&&h>5){OR={x:Math.round(x),y:Math.round(y),width:Math.round(w),height:Math.round(h)};dr();RC.textContent='x='+OR.x+' y='+OR.y+' w='+OR.width+' h='+OR.height;}});
+document.addEventListener('mouseup',function(){DR=false;});
+function dr(){if(!OR||!RW)return;var r=RF.getBoundingClientRect(),sx=r.width/RW,sy=r.height/RH;RCA.width=r.width;RCA.height=r.height;var c=RCA.getContext('2d');c.clearRect(0,0,r.width,r.height);c.fillStyle='rgba(0,0,0,0.3)';c.fillRect(0,0,r.width,r.height);c.clearRect(OR.x*sx,OR.y*sy,OR.width*sx,OR.height*sy);c.strokeStyle='#4CAF50';c.lineWidth=2;c.strokeRect(OR.x*sx,OR.y*sy,OR.width*sx,OR.height*sy);}
+CR.addEventListener('click',function(){OR=null;RC.textContent='未选择区域';RCA.getContext('2d').clearRect(0,0,RCA.width,RCA.height);});
+
+function rv(fn,dt){FN=fn;TG.innerHTML='';PH.style.display='none';if(dt&&dt.length>0){var a=dt[0].ocr_available;OS.textContent=a?'OCR 已启用，使用文本连续性判断':'OCR 未启用，使用图像去重';OS.style.color=a?'#88ff88':'#888';}
+fn.forEach(function(n,i){var d=dt?dt[i]:null,dv=document.createElement('div');dv.className='thumb-item';dv.draggable=true;dv.dataset.index=i;dv.style.position='relative';
+dv.addEventListener('dragstart',function(e){e.dataTransfer.setData('text/plain',i);dv.style.opacity='0.5';});dv.addEventListener('dragend',function(){dv.style.opacity='1';});dv.addEventListener('dragover',function(e){e.preventDefault();});
+dv.addEventListener('drop',function(e){e.preventDefault();var fr=parseInt(e.dataTransfer.getData('text/plain')),to=i;if(fr!==to){var it=FN.splice(fr,1)[0];FN.splice(to,0,it);rv(FN,dt);al('info','已调整顺序: '+(fr+1)+' → '+(to+1));}});
+var im=document.createElement('img');im.src='/api/files/'+J+'/frames/'+n;im.alt=n;im.style.cursor='grab';im.onerror=function(){im.src='';im.alt='error';};
+var nl=document.createElement('div');nl.style.cssText='position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.7);color:#fff;font-size:11px;padding:1px 5px;border-radius:3px;';nl.textContent=i+1;
+var db=document.createElement('button');db.textContent='×';db.style.cssText='position:absolute;top:2px;left:2px;background:rgba(200,0,0,0.8);color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:14px;width:20px;height:20px;line-height:18px;text-align:center;';db.title='删除';db.addEventListener('click',function(){FN.splice(i,1);rv(FN,dt);al('info','已删除');ST.textContent='剩余 '+FN.length+' 帧';});
+var nm=document.createElement('div');nm.className='name';nm.textContent='#'+(i+1)+' '+n;
+dv.appendChild(nl);dv.appendChild(db);dv.appendChild(im);dv.appendChild(nm);
+if(d&&d.reason){var r=document.createElement('div');r.className='frame-reason '+(d.status||'');var t=d.reason;if(d.warning)t='⚠ '+d.warning;if(d.ocr_text_count>0)t+=' ['+d.ocr_text_count+'行]';r.textContent=t;dv.appendChild(r);}
+TG.appendChild(dv);});}
+
+BS.addEventListener('click',function(){FI.click();});
+FI.addEventListener('change',function(){if(!FI.files||!FI.files[0])return;sf=FI.files[0];FI.value='';he();hd();cl();OR=null;RC.textContent='未选择区域';document.getElementById('refFrameContainer').style.display='none';OS.textContent='';ST.textContent='已选择: '+sf.name;al('info','已选择: '+sf.name);});
+
+// 处理视频并生成 PDF：正式提交
+var runJob=function(){
+ if(JR||!sf)return;JR=true;BG.disabled=true;BG.textContent='处理中...';he();hd();cl();J=null;
+ var fd=new FormData();fd.append('file',sf);
+ fd.append('interval',document.getElementById('videoInterval').value);
+ fd.append('blur_threshold',document.getElementById('blurThreshold').value);
+ fd.append('dedup_threshold',document.getElementById('dedupThreshold').value);
+ fd.append('global_dedup',document.getElementById('globalDedup').checked?'true':'false');
+ if(OR){fd.append('ocr_region_x',OR.x);fd.append('ocr_region_y',OR.y);fd.append('ocr_region_w',OR.width);fd.append('ocr_region_h',OR.height);}
+ fd.append('exclude_words',EW.value||'');
+ fetch('/api/video/jobs',{method:'POST',body:fd}).then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail);});})
+ .then(function(d){J=d.job_id;al('info','处理中: '+d.filename);pv(d.job_id);})
+ .catch(function(e){se('处理失败: '+e.message);JR=false;BG.disabled=false;BG.textContent='处理视频并生成 PDF';});
+};
+
+function pv(id){if(PO)clearInterval(PO);PO=setInterval(function(){fetch('/api/video/jobs/'+id).then(function(r){return r.json();}).then(function(d){
+ sp(d.current,d.total);ST.textContent=d.status==='processing'?'处理中...':d.status==='done'?'完成 '+d.total+' 帧':'';
+ if(d.logs&&d.logs.length){LP.innerHTML='';for(var i=0;i<d.logs.length;i++)al(d.logs[i][0],d.logs[i][1]);}
+ if(d.status==='done'){if(PO)clearInterval(PO);PO=null;JR=false;BG.disabled=false;BG.textContent='生成 PDF';BG.onclick=genPdf;rv(d.frames,d.frame_details);al('done','保留 '+d.total+' 帧');}
+ else if(d.status==='error'){if(PO)clearInterval(PO);PO=null;JR=false;BG.disabled=false;BG.textContent='处理视频并生成 PDF';se('失败: '+d.error);}
+});},500);}
+
+var genPdf=function(){
+ if(JR||!J)return;JR=true;BG.disabled=true;BG.textContent='生成 PDF 中...';he();hd();
+ fetch('/api/video/jobs/'+J+'/frames',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({filenames:FN})})
+ .then(function(){var fd=new FormData();fd.append('layout',document.getElementById('videoLayout').value);fd.append('show_number',document.getElementById('videoShowNumber').checked?'true':'false');fd.append('show_page_number','false');return fetch('/api/video/jobs/'+J+'/pdf',{method:'POST',body:fd});})
+ .then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail);});})
+ .then(function(d){if(d.status==='pdf_done'){al('done','PDF 成功');ST.textContent='PDF 生成成功';DA.classList.add('show');DL.href='/api/video/jobs/'+J+'/download';BG.disabled=false;BG.textContent='重新生成';}else se('失败');JR=false;})
+ .catch(function(e){se('失败: '+e.message);JR=false;BG.disabled=false;});
+};
+
+// 初始绑定
+BG.addEventListener('click',runJob);
 })();
 
-</script>
 </body>
 </html>

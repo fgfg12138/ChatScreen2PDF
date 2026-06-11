@@ -169,6 +169,6 @@ python scripts/build_release.py
 | Phase 2: 长截图切片 | ✅ |
 | Phase 3: 人工校对（删除/排序） | ✅ |
 | Phase 4: 视频处理 | ✅ |
-| Phase 5: OCR 辅助筛选 | ⏳ 可选增强 |
+| Phase 5: OCR 辅助筛选 | ✅ 已交付 |
 | Phase 6: 证据封面/哈希/水印 | ✅ |
 | Phase 7: Windows 打包 | ✅ |

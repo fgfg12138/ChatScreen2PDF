@@ -453,6 +453,28 @@ async def download_long_pdf(job_id: str):
 
 # ── Phase 4: 视频处理 ───────────────────────────────────────
 
+@router.post("/api/video/draft")
+async def create_video_draft(file: UploadFile = File(...)):
+    """上传视频草稿（仅保存文件，不处理），用于加载参考帧。"""
+    ext = Path(file.filename).suffix.lower()
+    if ext != ".mp4":
+        raise HTTPException(status_code=400, detail="仅支持 MP4 格式")
+    job_id = str(uuid.uuid4())
+    temp_dir = Path(tempfile.mkdtemp(prefix=f"chatScreen2pdf_video_{job_id}_", dir=str(TEMP_ROOT)))
+    content = await file.read()
+    src_path = temp_dir / file.filename
+    src_path.write_bytes(content)
+    job = {
+        "job_id": job_id, "status": "draft", "type": "video",
+        "total": 0, "current": 0, "logs": [],
+        "result_filename": "", "error": "",
+        "src_file": str(src_path), "temp_dir": str(temp_dir),
+        "frames": [], "frame_filenames": [], "frame_details": [],
+    }
+    _jobs[job_id] = job
+    return {"job_id": job_id, "filename": file.filename}
+
+
 @router.post("/api/video/jobs")
 async def create_video_job(
     file: UploadFile = File(...),
