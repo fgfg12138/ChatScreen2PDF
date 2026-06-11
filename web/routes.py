@@ -460,11 +460,29 @@ async def create_video_job(
     blur_threshold: float = Form(30.0),
     dedup_threshold: int = Form(10),
     global_dedup: str = Form("false"),
+    ocr_region_x: Optional[int] = Form(None),
+    ocr_region_y: Optional[int] = Form(None),
+    ocr_region_w: Optional[int] = Form(None),
+    ocr_region_h: Optional[int] = Form(None),
+    exclude_words: str = Form(""),
 ):
-    """上传视频并开始抽帧+筛选。"""
+    """上传视频并开始抽帧+筛选+OCR 连续性判断。"""
     ext = Path(file.filename).suffix.lower()
     if ext != ".mp4":
         raise HTTPException(status_code=400, detail="仅支持 MP4 格式")
+
+    # OCR 区域
+    ocr_region = None
+    if all(v is not None for v in [ocr_region_x, ocr_region_y, ocr_region_w, ocr_region_h]):
+        ocr_region = {"x": ocr_region_x, "y": ocr_region_y, "width": ocr_region_w, "height": ocr_region_h}
+
+    # 排除词
+    words = []
+    if exclude_words and exclude_words.strip():
+        for w in exclude_words.replace("\r\n", "\n").split("\n"):
+            w = w.strip()
+            if w and w not in words:
+                words.append(w)
 
     job_id = str(uuid.uuid4())
     temp_dir = Path(tempfile.mkdtemp(prefix=f"chatScreen2pdf_video_{job_id}_", dir=str(TEMP_ROOT)))
@@ -488,8 +506,12 @@ async def create_video_job(
         "blur_threshold": blur_threshold,
         "dedup_threshold": dedup_threshold,
         "global_dedup": global_dedup.lower() == "true",
+        "ocr_region": ocr_region,
+        "exclude_words": words,
         "frames": [],
         "frame_filenames": [],
+        "frame_details": [],  # 每帧的 OCR 分类结果
+        "ocr_available": False,
     }
     _jobs[job_id] = job
 
@@ -503,6 +525,7 @@ async def create_video_job(
 def _process_video_job(job_id: str) -> None:
     """后台视频处理。"""
     from core.video_processor import extract_video_frames, filter_frames
+    from core.ocr_service import is_ocr_available, recognize_image, classify_frame_by_ocr, validate_ocr_region
 
     job = _jobs.get(job_id)
     if not job:
@@ -528,22 +551,99 @@ def _process_video_job(job_id: str) -> None:
         )
         job["logs"].append(("info", f"抽帧完成: {len(frames)} 帧"))
 
-        # 2. 筛选（模糊+去重）
-        job["logs"].append(("info", "正在筛选（模糊过滤+去重）..."))
+        # 2. 检查 OCR
+        ocr_avail = is_ocr_available()
+        job["ocr_available"] = ocr_avail
+
+        # 校验 OCR 区域
+        ocr_region = job.get("ocr_region")
+        if ocr_region and frames:
+            from PIL import Image
+            with Image.open(frames[0]) as img:
+                w, h = img.size
+            validation = validate_ocr_region(ocr_region, w, h)
+            if validation.get("valid") and validation.get("region"):
+                job["ocr_region"] = validation["region"]
+                if validation.get("warning"):
+                    job["logs"].append(("info", f"OCR 区域: {validation['warning']}"))
+            else:
+                job["ocr_region"] = None
+                if validation.get("error"):
+                    job["logs"].append(("warning", f"OCR 区域无效: {validation['error']}，使用全图"))
+
+        # 3. 模糊过滤
+        job["logs"].append(("info", "正在筛选（模糊过滤）..."))
         kept = filter_frames(
             frames,
             blur_threshold=job["blur_threshold"],
-            dedup_threshold=job["dedup_threshold"],
-            global_dedup=job["global_dedup"],
+            dedup_threshold=999,  # OCR 阶段再去做重
+            global_dedup=False,
         )
-        job["logs"].append(("info", f"筛选完成: {len(frames)} → {len(kept)} 帧"))
 
-        job["frames"] = [str(f) for f in kept]
-        job["frame_filenames"] = [f.name for f in kept]
-        job["total"] = len(kept)
-        job["current"] = len(kept)
+        # 4. OCR 连续性判断
+        exclude_words = job.get("exclude_words", [])
+        frame_details = []
+        prev_lines = None
+
+        if ocr_avail:
+            job["logs"].append(("info", f"正在进行 OCR 连续性分析 (区域: {ocr_region or '全图'})..."))
+
+        filtered = []
+        for idx, fp in enumerate(kept):
+            curr_lines = []
+            if ocr_avail:
+                curr_lines = recognize_image(fp, ocr_region)
+
+            result = classify_frame_by_ocr(
+                prev_lines, curr_lines,
+                exclude_words=exclude_words,
+                ocr_available=ocr_avail,
+            )
+            result["id"] = fp.name
+            result["index"] = idx
+            result["preview_url"] = f"/api/files/{job_id}/frames/{fp.name}"
+            frame_details.append(result)
+
+            if result["status"] in ("kept", "kept_warning", "image_dedup_only", "ocr_failed"):
+                filtered.append(fp)
+                if result["status"] in ("kept", "kept_warning"):
+                    prev_lines = curr_lines
+            elif result["status"] == "skipped_duplicate":
+                pass  # 跳过
+
+        # 5. 如果没有 OCR 或全部跳过，降级为图像去重
+        if not filtered:
+            job["logs"].append(("info", "OCR 筛选后无保留帧，降级为图像去重"))
+            filtered = filter_frames(
+                kept,
+                blur_threshold=job["blur_threshold"],
+                dedup_threshold=job["dedup_threshold"],
+                global_dedup=job["global_dedup"],
+            )
+            frame_details = []
+            for idx, fp in enumerate(filtered):
+                frame_details.append({
+                    "id": fp.name,
+                    "index": idx,
+                    "preview_url": f"/api/files/{job_id}/frames/{fp.name}",
+                    "status": "image_dedup_only",
+                    "reason": "OCR 降级，使用图像去重保留",
+                    "warning": None,
+                    "ocr_available": ocr_avail,
+                    "ocr_text_count": 0,
+                    "ocr_text_preview": [],
+                })
+
+        job["frames"] = [str(f) for f in filtered]
+        job["frame_filenames"] = [f.name for f in filtered]
+        job["frame_details"] = frame_details
+        job["total"] = len(filtered)
+        job["current"] = len(filtered)
         job["status"] = "done"
-        job["logs"].append(("done", f"视频处理完成: {len(kept)} 帧保留"))
+
+        ocr_status = "已启用" if ocr_avail else "未安装"
+        job["logs"].append(("done",
+            f"视频处理完成: {len(frames)}→{len(filtered)} 帧 (OCR: {ocr_status})"))
 
     except Exception as e:
         job["status"] = "error"
@@ -565,8 +665,75 @@ async def get_video_job_status(job_id: str):
         "current": job["current"],
         "logs": job["logs"],
         "frames": job.get("frame_filenames", []),
+        "frame_details": job.get("frame_details", []),
         "frames_dir": str(Path(job.get("temp_dir", "")) / "frames") if job.get("temp_dir") else "",
+        "ocr_available": job.get("ocr_available", False),
         "error": job.get("error", ""),
+    }
+
+
+@router.post("/api/video/reference-frame")
+async def create_reference_frame(
+    job_id: str = Form(...),
+):
+    """
+    从视频中提取参考帧用于 OCR 区域框选。
+    默认取第 1 秒附近的一帧。
+    """
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    src_path = Path(job["src_file"])
+    if not src_path.exists():
+        raise HTTPException(status_code=400, detail="视频文件不存在")
+
+    ref_dir = Path(job["temp_dir"])
+    ref_path = ref_dir / "reference.jpg"
+
+    import subprocess
+    ffmpeg_path = "ffmpeg"
+    try:
+        from core.extractor import _find_ffmpeg
+        ffmpeg_path = _find_ffmpeg()
+    except Exception:
+        pass
+
+    # 尝试取第 1 秒的帧
+    cmd = [
+        ffmpeg_path, "-hide_banner", "-loglevel", "error",
+        "-ss", "1", "-i", str(src_path),
+        "-frames:v", "1", "-qscale:v", "2", "-y", str(ref_path),
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=30)
+    except Exception:
+        pass
+
+    # 如果失败，取第一帧
+    if not ref_path.exists():
+        cmd[4:6] = ["-i", str(src_path)]
+        cmd.insert(4, "-ss")
+        cmd.insert(5, "0")
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=30)
+        except Exception:
+            raise HTTPException(status_code=500, detail="参考帧提取失败")
+
+    if not ref_path.exists():
+        raise HTTPException(status_code=500, detail="参考帧提取失败")
+
+    from PIL import Image
+    with Image.open(ref_path) as img:
+        w, h = img.size
+
+    return {
+        "success": True,
+        "session_id": job_id,
+        "preview_url": f"/api/files/{job_id}/reference.jpg",
+        "width": w,
+        "height": h,
+        "message": "参考帧加载成功",
     }
 
 
@@ -589,6 +756,18 @@ async def serve_slice_image(job_id: str, filename: str):
     if not job:
         raise HTTPException(status_code=404)
     fp = Path(job["temp_dir"]) / "slices" / filename
+    if not fp.exists():
+        raise HTTPException(status_code=404)
+    return FileResponse(str(fp), media_type="image/jpeg")
+
+
+@router.get("/api/files/{job_id}/reference.jpg")
+async def serve_reference_frame(job_id: str):
+    """提供视频参考帧。"""
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404)
+    fp = Path(job["temp_dir"]) / "reference.jpg"
     if not fp.exists():
         raise HTTPException(status_code=404)
     return FileResponse(str(fp), media_type="image/jpeg")

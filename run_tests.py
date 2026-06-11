@@ -37,6 +37,7 @@ test_modules = [
     "tests.test_crop",
     "tests.test_long_image",
     "tests.test_video_processor",
+    "tests.test_ocr_service",
 ]
 
 total_passed = total_failed = total_import_failed = 0
