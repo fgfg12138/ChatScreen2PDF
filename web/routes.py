@@ -255,8 +255,12 @@ async def download_pdf(job_id: str):
     job = _jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="任务不存在")
-    if job["status"] != "done":
-        raise HTTPException(status_code=400, detail="任务尚未完成")
+    if job["status"] not in ("done", "pdf_done", "pdf_ready"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "message": "PDF 仍在生成中，请稍后再试"},
+        )
 
     result_name = job.get("result_filename", "")
     temp_dir = Path(job["temp_dir"])

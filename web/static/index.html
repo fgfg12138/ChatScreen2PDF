@@ -207,67 +207,117 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
 
 <!-- 视频处理区域（隐藏） -->
 <div id="videoSection" style="display:none">
-  <div class="toolbar" style="flex-wrap:wrap">
-    <button class="btn btn-secondary" id="videoBtnSelect">选择 MP4 视频</button>
-    <input type="file" id="videoFileInput" accept="video/mp4" style="display:none">
-    <label>抽帧(秒):</label>
-    <input type="number" id="videoInterval" value="0.5" min="0.1" max="10" step="0.1" style="width:60px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px">
-    <label>模糊:</label>
-    <input type="number" id="blurThreshold" value="30" min="0" max="200" step="1" style="width:50px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px">
-    <label>去重:</label>
-    <input type="number" id="dedupThreshold" value="10" min="1" max="50" style="width:50px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px">
-    <label style="font-size:13px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="globalDedup"> 全局去重</label>
-    <label>布局:</label>
-    <select id="videoLayout" style="width:70px"><option value="1x1">1×1</option><option value="1x2">1×2</option><option value="2x2" selected>2×2</option><option value="2x3">2×3</option></select>
-    <label style="font-size:13px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="videoShowNumber" checked> 编号</label>
+  <!-- 步骤引导 -->
+  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;font-size:13px">
+    <span style="background:#4CAF50;color:#fff;padding:4px 12px;border-radius:12px">第 1 步：选择视频</span>
+    <span style="background:#333;color:#aaa;padding:4px 12px;border-radius:12px" id="step2">第 2 步：加载参考帧</span>
+    <span style="background:#333;color:#aaa;padding:4px 12px;border-radius:12px" id="step3">第 3 步：框选聊天区域</span>
+    <span style="background:#333;color:#aaa;padding:4px 12px;border-radius:12px" id="step4">第 4 步：设置参数</span>
+    <span style="background:#333;color:#aaa;padding:4px 12px;border-radius:12px" id="step5">第 5 步：开始转换</span>
   </div>
 
-  <!-- OCR 区域 -->
-  <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
-    <div style="flex:1;min-width:200px">
-      <button class="btn btn-secondary" id="videoBtnLoadRef" style="padding:6px 12px;font-size:12px">加载参考帧</button>
-      <button class="btn btn-secondary" id="videoBtnClearRegion" style="padding:6px 12px;font-size:12px;margin-left:4px">清除 OCR 区域</button>
-      <div id="ocrStatus" style="font-size:12px;color:#aaa;margin-top:6px"></div>
-      <div style="margin-top:6px;font-size:11px;color:#888">建议只框选聊天内容区域，不要包含顶部标题栏、输入框、状态栏和大面积空白。</div>
+  <!-- 选择视频 -->
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+    <button class="btn btn-secondary" id="videoBtnSelect">选择 MP4 视频</button>
+    <input type="file" id="videoFileInput" accept="video/mp4" style="display:none">
+    <span id="videoFileName" style="color:#aaa;font-size:13px">未选择文件</span>
+    <span id="videoFileSize" style="color:#666;font-size:12px"></span>
+  </div>
+
+  <!-- 参数区 -->
+  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
+    <div style="flex:2;min-width:280px">
+      <div style="font-size:12px;color:#aaa;margin-bottom:6px">⚙ 处理参数</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+        <span style="color:#ddd;font-size:12px;cursor:help" title="每隔多少秒从视频中提取一帧。数值越小截图越多越不容易漏内容，但处理更慢。推荐 0.5 秒。&#10;&#10;推荐值：&#10;0.2：最完整但慢&#10;0.5：推荐默认&#10;1.0：更快但可能漏内容&#10;2.0+：不推荐">抽帧间隔(秒) ℹ</span>
+        <input type="number" id="videoInterval" value="0.5" min="0.1" max="10" step="0.1" style="width:60px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px" title="每隔多少秒从视频中提取一帧。推荐 0.5 秒。">
+        <span style="color:#888;font-size:11px">推荐 0.5</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+        <span style="color:#ddd;font-size:12px;cursor:help" title="用于过滤模糊截图。数值越高过滤越严格；数值越低保留越多。推荐 30。&#10;&#10;推荐值：&#10;0：不过滤&#10;20：宽松&#10;30：推荐默认&#10;50：较严格&#10;80+：很严格可能误删">模糊阈值 ℹ</span>
+        <input type="number" id="blurThreshold" value="30" min="0" max="200" step="1" style="width:50px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px" title="过滤模糊截图的严格程度。推荐 30。">
+        <span style="color:#888;font-size:11px">推荐 30</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+        <span style="color:#ddd;font-size:12px;cursor:help" title="判断截图是否重复。数值越高去重越激进，保留图片越少。推荐 10。&#10;&#10;推荐值：&#10;1-5：保守，重复图可能较多&#10;10：推荐默认&#10;15-20：去重更强&#10;30+：很激进可能误删">去重阈值 ℹ</span>
+        <input type="number" id="dedupThreshold" value="10" min="1" max="50" style="width:50px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px" title="判断截图相似度的阈值。推荐 10。">
+        <span style="color:#888;font-size:11px">推荐 10</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <label style="font-size:12px;color:#ddd;cursor:help" title="开启后会把当前截图和所有已保留截图比较，去重更彻底。普通聊天录屏建议关闭；如果视频里反复上下滑动可以开启。">全局去重 ℹ</label>
+        <input type="checkbox" id="globalDedup">
+      </div>
     </div>
     <div style="flex:1;min-width:200px">
-      <div style="font-size:12px;color:#aaa;margin-bottom:2px">OCR 区域坐标</div>
-      <div id="regionCoords" style="font-size:11px;color:#888;font-family:monospace">未选择区域</div>
-    </div>
-    <div style="flex:1;min-width:200px">
-      <div style="font-size:12px;color:#aaa;margin-bottom:2px">内容排除白名单</div>
-      <textarea id="excludeWords" rows="2" style="width:100%;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px;font-size:11px" placeholder="微信&#10;文件传输助手&#10;发送&#10;语音&#10;聊天信息"></textarea>
+      <div style="font-size:12px;color:#aaa;margin-bottom:6px">📋 内容排除白名单</div>
+      <textarea id="excludeWords" rows="3" style="width:100%;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px;font-size:11px" placeholder="微信&#10;文件传输助手&#10;发送&#10;语音&#10;聊天信息" title="每行一个词，OCR 判断连续性时会忽略包含这些词的文本行。"></textarea>
       <div style="font-size:10px;color:#666;margin-top:2px">每行一个词，OCR 判断连续性时会忽略包含这些词的文本行</div>
     </div>
   </div>
 
-  <!-- 参考帧预览+框选区域 -->
-  <div id="refFrameContainer" style="display:none;position:relative;margin-bottom:12px;background:#16213e;border-radius:8px;padding:8px;text-align:center">
-    <img id="refFrame" style="max-width:100%;max-height:300px;cursor:crosshair" alt="参考帧">
-    <canvas id="refCanvas" style="position:absolute;top:8px;left:8px;pointer-events:none"></canvas>
+  <!-- PDF 设置 -->
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+    <span style="color:#aaa;font-size:12px">📄 PDF 设置</span>
+    <label style="font-size:12px;color:#ddd">布局:
+      <select id="videoLayout" style="width:70px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:4px">
+        <option value="1x1">1×1</option><option value="1x2">1×2</option><option value="2x2" selected>2×2</option><option value="2x3">2×3</option>
+      </select>
+    </label>
+    <label style="font-size:12px;color:#ddd"><input type="checkbox" id="videoShowNumber" checked> 编号</label>
   </div>
 
-  <div class="thumb-area" id="videoThumbArea">
-    <div id="videoThumbPlaceholder" style="color:#555;text-align:center;padding:60px 20px;font-size:15px">请选择 MP4 视频</div>
-    <div class="thumb-grid" id="videoThumbGrid"></div>
+  <!-- OCR 区域 -->
+  <div id="ocrSection" style="display:none;margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <button class="btn btn-secondary" id="videoBtnLoadRef" style="padding:6px 14px;font-size:12px">📷 加载参考帧</button>
+      <button class="btn btn-secondary" id="videoBtnConfirmRegion" style="padding:6px 14px;font-size:12px">✅ 确认聊天区域</button>
+      <button class="btn btn-secondary" id="videoBtnClearRegion" style="padding:6px 14px;font-size:12px">🔄 重新选择区域</button>
+      <button class="btn btn-secondary" id="videoBtnUseFull" style="padding:6px 14px;font-size:12px">🖼 使用全图</button>
+    </div>
+    <div id="refFrameContainer" style="display:none;position:relative;background:#16213e;border-radius:8px;padding:8px;text-align:center;max-height:500px;overflow:hidden">
+      <img id="refFrame" style="max-width:100%;max-height:480px;cursor:crosshair" alt="参考帧">
+      <canvas id="refCanvas" style="position:absolute;top:8px;left:0;width:100%;height:100%;pointer-events:none"></canvas>
+    </div>
+    <div style="display:flex;gap:16px;margin-top:6px;font-size:11px">
+      <span style="color:#888">区域坐标: <span id="regionCoords" style="color:#aaa;font-family:monospace">未选择</span></span>
+      <span id="ocrStatus" style="color:#888"></span>
+    </div>
+    <div style="font-size:11px;color:#666;margin-top:4px">建议只框选聊天内容区域，不要包含顶部标题栏、输入框、状态栏和大面积空白。</div>
+  </div>
+
+  <!-- 缩略图 -->
+  <div style="margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <span id="thumbStats" style="font-size:12px;color:#888"></span>
+      <span style="font-size:12px;color:#888">缩略图大小:</span>
+      <select id="thumbSizeSelect" style="background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:2px 6px;font-size:11px">
+        <option value="80">小</option><option value="130" selected>中</option><option value="200">大</option>
+      </select>
+    </div>
+    <div style="max-height:55vh;overflow-y:auto;background:#16213e;border-radius:8px;padding:8px;min-height:100px">
+      <div id="videoThumbPlaceholder" style="color:#555;text-align:center;padding:40px 20px;font-size:14px">请选择 MP4 视频</div>
+      <div class="thumb-grid" id="videoThumbGrid"></div>
+    </div>
   </div>
 
   <div class="error-msg" id="videoErrorMsg"></div>
-  <div class="status-bar">
-    <span class="status-text" id="videoStatusText">请选择 MP4 视频</span>
-    <div class="progress-wrap" id="videoProgressWrap" style="display:none">
+  <div class="status-bar" style="margin-bottom:8px">
+    <span class="status-text" id="videoStatusText" style="font-size:13px">请选择 MP4 视频</span>
+    <div class="progress-wrap" id="videoProgressWrap" style="display:none;flex:1;max-width:300px">
       <div class="progress-bar"><div class="fill" id="videoProgressFill"></div></div>
     </div>
-    <span class="progress-text" id="videoProgressText"></span>
+    <span class="progress-text" id="videoProgressText" style="font-size:11px"></span>
   </div>
 
-  <button class="btn btn-primary" id="videoBtnGenerate" style="width:100%;padding:14px;font-size:16px;margin-bottom:12px">处理视频并生成 PDF</button>
+  <div style="display:flex;gap:12px;margin-bottom:8px">
+    <button class="btn btn-primary" id="videoBtnGenerate" style="flex:1;padding:14px;font-size:15px;font-weight:bold">开始转换</button>
+  </div>
 
   <div class="download-area" id="videoDownloadArea">
-    <span>✅ PDF 生成成功</span>
+    <span style="color:#88ff88">✅ PDF 生成成功</span>
     <a class="download-link" id="videoDownloadLink" href="#">下载 PDF</a>
   </div>
-  <div class="log-panel" id="videoLogPanel"></div>
+  <div class="log-panel" id="videoLogPanel" style="max-height:120px;height:120px"></div>
 
   <style>
   .frame-reason {font-size:10px;padding:2px 4px;margin-top:2px;border-radius:2px;word-break:break-all}
@@ -276,6 +326,8 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
   .frame-reason.skipped_duplicate {color:#888}
   .frame-reason.ocr_failed {color:#ff8888}
   .frame-reason.image_dedup_only {color:#88ccff}
+  .thumb-item {transition:opacity 0.2s}
+  .thumb-item.dragging {opacity:0.4}
   </style>
 </div>
 
@@ -794,77 +846,167 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
   });
 })();
 
-// ── 视频处理（正确流程：选择→参考帧→框选→手动处理）──
+// ── 视频处理（选择→参考帧→框选→开始转换）──
 (function(){
-var FI=document.getElementById('videoFileInput'),BS=document.getElementById('videoBtnSelect'),BG=document.getElementById('videoBtnGenerate'),LR=document.getElementById('videoBtnLoadRef'),CR=document.getElementById('videoBtnClearRegion'),TG=document.getElementById('videoThumbGrid'),PH=document.getElementById('videoThumbPlaceholder'),ST=document.getElementById('videoStatusText'),PW=document.getElementById('videoProgressWrap'),PF=document.getElementById('videoProgressFill'),PT=document.getElementById('videoProgressText'),LP=document.getElementById('videoLogPanel'),EM=document.getElementById('videoErrorMsg'),DA=document.getElementById('videoDownloadArea'),DL=document.getElementById('videoDownloadLink'),OS=document.getElementById('ocrStatus'),RC=document.getElementById('regionCoords'),RF=document.getElementById('refFrame'),RCA=document.getElementById('refCanvas'),EW=document.getElementById('excludeWords');
-var sf=null,dj=null,J=null,PO=null,JR=false,FN=[],OR=null,RW=0,RH=0,DR=false,DSX=0,DSY=0;
+var FI=document.getElementById('videoFileInput'),BS=document.getElementById('videoBtnSelect'),BG=document.getElementById('videoBtnGenerate'),LR=document.getElementById('videoBtnLoadRef'),CR=document.getElementById('videoBtnClearRegion'),TG=document.getElementById('videoThumbGrid'),PH=document.getElementById('videoThumbPlaceholder'),ST=document.getElementById('videoStatusText'),PW=document.getElementById('videoProgressWrap'),PF=document.getElementById('videoProgressFill'),PT=document.getElementById('videoProgressText'),LP=document.getElementById('videoLogPanel'),EM=document.getElementById('videoErrorMsg'),DA=document.getElementById('videoDownloadArea'),DL=document.getElementById('videoDownloadLink'),OS=document.getElementById('ocrStatus'),RC=document.getElementById('regionCoords'),RF=document.getElementById('refFrame'),RCA=document.getElementById('refCanvas'),EW=document.getElementById('excludeWords'),FNm=document.getElementById('videoFileName'),FS=document.getElementById('videoFileSize'),TS=document.getElementById('thumbStats'),OC=document.getElementById('ocrSection'),S2=document.getElementById('step2'),S3=document.getElementById('step3'),S4=document.getElementById('step4'),S5=document.getElementById('step5'),CF=document.getElementById('videoBtnConfirmRegion'),UF=document.getElementById('videoBtnUseFull'),TZ=document.getElementById('thumbSizeSelect');
+var sf=null,dj=null,J=null,PO=null,ST8='idle',FN=[],OR=null,RW=0,RH=0,DR=false,DSX=0,DSY=0,DD=false;
+
 function al(s,m){var p=document.createElement('div');p.className='line-'+s;p.textContent=m;LP.appendChild(p);LP.scrollTop=LP.scrollHeight;}
-function cl(){LP.innerHTML='';}function se(m){EM.textContent=m;EM.classList.add('show');}function he(){EM.classList.remove('show');}function hd(){DA.classList.remove('show');DL.href='#';}
+function cl(){LP.innerHTML='';}function se(m){EM.textContent=m;EM.classList.add('show');}function he(){EM.classList.remove('show');}
+function hd(){DA.classList.remove('show');DL.href='#';}
 function sp(c,t){if(t>0){PW.style.display='block';PF.style.width=Math.round(c/t*100)+'%';PT.textContent=c+'/'+t;}}
 
-LR.addEventListener('click',function(){
- if(!sf){se('请先选择 MP4 视频');return;}he();var fd=new FormData();fd.append('file',sf);
- fetch('/api/video/draft',{method:'POST',body:fd}).then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail||'');});})
- .then(function(d){dj=d.job_id;return fetch('/api/video/reference-frame',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'job_id='+encodeURIComponent(dj)});})
- .then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail||'');});})
- .then(function(d){RW=d.width;RH=d.height;RF.src=d.preview_url+'?t='+Date.now();document.getElementById('refFrameContainer').style.display='block';RF.onload=function(){RCA.getContext('2d').clearRect(0,0,RCA.width,RCA.height);};al('info','参考帧加载成功 ('+d.width+'x'+d.height+')');})
- .catch(function(e){se('参考帧失败: '+e.message);});
+// 重置所有状态
+function resetAll(){
+  if(PO)clearInterval(PO);PO=null;J=null;dj=null;OR=null;RW=0;RH=0;FN=[];DD=false;ST8='idle';
+  TG.innerHTML='';PH.style.display='';PH.textContent='请选择 MP4 视频';
+  OC.style.display='none';document.getElementById('refFrameContainer').style.display='none';
+  RC.textContent='未选择';OS.textContent='';hd();he();sp(0,0);PW.style.display='none';
+  ST.textContent='请选择 MP4 视频';al('info','已重置，请选择新视频');
+}
+
+// 步骤高亮
+function stepHighlight(n){
+  var steps=[S2,S3,S4,S5];var bg,fg;
+  for(var i=0;i<steps.length;i++){
+    if(i+2<=n){steps[i].style.background='#4CAF50';steps[i].style.color='#fff';}
+    else{steps[i].style.background='#333';steps[i].style.color='#aaa';}
+  }
+}
+
+// 选择视频：仅保存，不处理
+BS.addEventListener('click',function(){FI.click();});
+FI.addEventListener('change',function(){
+  if(!FI.files||!FI.files[0]){resetAll();return;}
+  // 清空旧结果
+  resetAll();
+  sf=FI.files[0];FI.value='';
+  FNm.textContent=sf.name;FS.textContent='('+Math.round(sf.size/1024/1024*10)/10+' MB)';
+  ST8='selected';ST.textContent='已选择视频，请设置参数后点击开始转换';
+  stepHighlight(1);OC.style.display='block';al('info','已选择: '+sf.name);
 });
 
-RF.addEventListener('mousedown',function(e){if(!RW)return;var r=RF.getBoundingClientRect(),sx=RW/r.width,sy=RH/r.height;DR=true;DSX=(e.clientX-r.left)*sx;DSY=(e.clientY-r.top)*sy;});
-document.addEventListener('mousemove',function(e){if(!DR)return;var r=RF.getBoundingClientRect(),sx=RW/r.width,sy=RH/r.height,cx=Math.max(0,Math.min((e.clientX-r.left)*sx,RW)),cy=Math.max(0,Math.min((e.clientY-r.top)*sy,RH)),x=Math.min(DSX,cx),y=Math.min(DSY,cy),w=Math.abs(cx-DSX),h=Math.abs(cy-DSY);if(w>5&&h>5){OR={x:Math.round(x),y:Math.round(y),width:Math.round(w),height:Math.round(h)};dr();RC.textContent='x='+OR.x+' y='+OR.y+' w='+OR.width+' h='+OR.height;}});
+// 加载参考帧
+LR.addEventListener('click',function(){
+  if(!sf){se('请先选择视频');return;}he();
+  var fd=new FormData();fd.append('file',sf);
+  fetch('/api/video/draft',{method:'POST',body:fd})
+  .then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail||'');});})
+  .then(function(d){dj=d.job_id;return fetch('/api/video/reference-frame',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'job_id='+encodeURIComponent(dj)});})
+  .then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail||'');});})
+  .then(function(d){RW=d.width;RH=d.height;RF.src=d.preview_url+'?t='+Date.now();document.getElementById('refFrameContainer').style.display='block';ST8='draft_ready';stepHighlight(2);
+    RF.onload=function(){var c=RCA.getContext('2d');RCA.width=RCA.offsetWidth;RCA.height=RCA.offsetHeight;c.clearRect(0,0,RCA.width,RCA.height);};al('info','参考帧加载成功 ('+d.width+'x'+d.height+')');})
+  .catch(function(e){se('参考帧失败: '+e.message);});
+});
+
+// 选区拖拽
+RF.addEventListener('mousedown',function(e){
+  if(!RW)return;DR=true;var r=RF.getBoundingClientRect();DSX=(e.clientX-r.left);DSY=(e.clientY-r.top);DD=false;
+});
+document.addEventListener('mousemove',function(e){
+  if(!DR)return;var r=RF.getBoundingClientRect(),sx=RW/r.width,sy=RH/r.height;
+  var cx=Math.max(0,Math.min((e.clientX-r.left)*sx,RW)),cy=Math.max(0,Math.min((e.clientY-r.top)*sy,RH));
+  var x=Math.min(DSX*sx,cx),y=Math.min(DSY*sy,cy),w=Math.abs(cx-DSX*sx),h=Math.abs(cy-DSY*sy);
+  if(w>5&&h>5){OR={x:Math.round(x),y:Math.round(y),width:Math.round(w),height:Math.round(h)};DD=true;dr();RC.textContent='x='+OR.x+' y='+OR.y+' w='+OR.width+' h='+OR.height;}
+});
 document.addEventListener('mouseup',function(){DR=false;});
-function dr(){if(!OR||!RW)return;var r=RF.getBoundingClientRect(),sx=r.width/RW,sy=r.height/RH;RCA.width=r.width;RCA.height=r.height;var c=RCA.getContext('2d');c.clearRect(0,0,r.width,r.height);c.fillStyle='rgba(0,0,0,0.3)';c.fillRect(0,0,r.width,r.height);c.clearRect(OR.x*sx,OR.y*sy,OR.width*sx,OR.height*sy);c.strokeStyle='#4CAF50';c.lineWidth=2;c.strokeRect(OR.x*sx,OR.y*sy,OR.width*sx,OR.height*sy);}
-CR.addEventListener('click',function(){OR=null;RC.textContent='未选择区域';RCA.getContext('2d').clearRect(0,0,RCA.width,RCA.height);});
+function dr(){
+  if(!OR||!RW)return;var r=RF.getBoundingClientRect(),sx=r.width/RW,sy=r.height/RH;
+  RCA.width=r.width;RCA.height=r.height;var c=RCA.getContext('2d');
+  c.clearRect(0,0,r.width,r.height);c.fillStyle='rgba(0,0,0,0.3)';c.fillRect(0,0,r.width,r.height);
+  c.clearRect(OR.x*sx-2,OR.y*sy-2,OR.width*sx+4,OR.height*sy+4);
+  c.strokeStyle='#4CAF50';c.lineWidth=3;c.strokeRect(OR.x*sx,OR.y*sy,OR.width*sx,OR.height*sy);
+}
+CF.addEventListener('click',function(){if(OR){stepHighlight(3);al('info','已确认聊天区域: '+JSON.stringify(OR));}});
+CR.addEventListener('click',function(){OR=null;RC.textContent='未选择';var c=RCA.getContext('2d');c.clearRect(0,0,RCA.width,RCA.height);DD=false;stepHighlight(2);});
+UF.addEventListener('click',function(){OR=null;RC.textContent='使用全图';var c=RCA.getContext('2d');c.clearRect(0,0,RCA.width,RCA.height);stepHighlight(3);al('info','将使用全图分析');DD=true;});
 
-function rv(fn,dt){FN=fn;TG.innerHTML='';PH.style.display='none';if(dt&&dt.length>0){var a=dt[0].ocr_available;OS.textContent=a?'OCR 已启用，使用文本连续性判断':'OCR 未启用，使用图像去重';OS.style.color=a?'#88ff88':'#888';}
-fn.forEach(function(n,i){var d=dt?dt[i]:null,dv=document.createElement('div');dv.className='thumb-item';dv.draggable=true;dv.dataset.index=i;dv.style.position='relative';
-dv.addEventListener('dragstart',function(e){e.dataTransfer.setData('text/plain',i);dv.style.opacity='0.5';});dv.addEventListener('dragend',function(){dv.style.opacity='1';});dv.addEventListener('dragover',function(e){e.preventDefault();});
-dv.addEventListener('drop',function(e){e.preventDefault();var fr=parseInt(e.dataTransfer.getData('text/plain')),to=i;if(fr!==to){var it=FN.splice(fr,1)[0];FN.splice(to,0,it);rv(FN,dt);al('info','已调整顺序: '+(fr+1)+' → '+(to+1));}});
-var im=document.createElement('img');im.src='/api/files/'+J+'/frames/'+n;im.alt=n;im.style.cursor='grab';im.onerror=function(){im.src='';im.alt='error';};
-var nl=document.createElement('div');nl.style.cssText='position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.7);color:#fff;font-size:11px;padding:1px 5px;border-radius:3px;';nl.textContent=i+1;
-var db=document.createElement('button');db.textContent='×';db.style.cssText='position:absolute;top:2px;left:2px;background:rgba(200,0,0,0.8);color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:14px;width:20px;height:20px;line-height:18px;text-align:center;';db.title='删除';db.addEventListener('click',function(){FN.splice(i,1);rv(FN,dt);al('info','已删除');ST.textContent='剩余 '+FN.length+' 帧';});
-var nm=document.createElement('div');nm.className='name';nm.textContent='#'+(i+1)+' '+n;
-dv.appendChild(nl);dv.appendChild(db);dv.appendChild(im);dv.appendChild(nm);
-if(d&&d.reason){var r=document.createElement('div');r.className='frame-reason '+(d.status||'');var t=d.reason;if(d.warning)t='⚠ '+d.warning;if(d.ocr_text_count>0)t+=' ['+d.ocr_text_count+'行]';r.textContent=t;dv.appendChild(r);}
-TG.appendChild(dv);});}
+// 渲染帧
+function rv(fn,dt){
+  FN=fn;TG.innerHTML='';PH.style.display='none';
+  if(dt&&dt.length>0){var a=dt[0].ocr_available;OS.textContent=a?'OCR 已启用，使用文本连续性判断':'OCR 未启用，使用图像去重';OS.style.color=a?'#88ff88':'#888';}
+  TS.textContent='共保留 '+fn.length+' 帧';
+  var sz=parseInt(TZ.value);
+  fn.forEach(function(n,i){
+    var d=dt?dt[i]:null,dv=document.createElement('div');dv.className='thumb-item';dv.draggable=true;dv.dataset.index=i;dv.style.position='relative';
+    dv.addEventListener('dragstart',function(e){e.dataTransfer.setData('text/plain',i);dv.style.opacity='0.4';});
+    dv.addEventListener('dragend',function(){dv.style.opacity='1';});
+    dv.addEventListener('dragover',function(e){e.preventDefault();});
+    dv.addEventListener('drop',function(e){e.preventDefault();var fr=parseInt(e.dataTransfer.getData('text/plain')),to=i;if(fr!==to){var it=FN.splice(fr,1)[0];FN.splice(to,0,it);rv(FN,dt);al('info','已调整顺序: '+(fr+1)+' → '+(to+1));}});
+    var im=document.createElement('img');im.src='/api/files/'+J+'/frames/'+n;im.alt=n;im.style.cursor='grab';im.style.maxWidth=sz+'px';im.style.maxHeight=sz+'px';im.onerror=function(){this.src='';this.alt='error';};
+    var nl=document.createElement('div');nl.style.cssText='position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.7);color:#fff;font-size:11px;padding:1px 5px;border-radius:3px;';nl.textContent=i+1;
+    var db=document.createElement('button');db.textContent='×';db.style.cssText='position:absolute;top:2px;left:2px;background:rgba(200,0,0,0.8);color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:14px;width:20px;height:20px;text-align:center;';
+    db.title='删除';db.addEventListener('click',function(){FN.splice(i,1);rv(FN,dt);al('info','已删除');TS.textContent='共保留 '+FN.length+' 帧';});
+    var nm=document.createElement('div');nm.className='name';nm.style.fontSize='10px';nm.textContent='#'+(i+1);
+    dv.appendChild(nl);dv.appendChild(db);dv.appendChild(im);dv.appendChild(nm);
+    if(d&&d.reason){var r=document.createElement('div');r.className='frame-reason '+(d.status||'');var t=d.reason;if(d.warning)t='⚠ '+d.warning;if(d.ocr_text_count>0)t+=' ['+d.ocr_text_count+'行]';r.textContent=t;dv.appendChild(r);}
+    TG.appendChild(dv);
+  });
+}
 
-BS.addEventListener('click',function(){FI.click();});
-FI.addEventListener('change',function(){if(!FI.files||!FI.files[0])return;sf=FI.files[0];FI.value='';he();hd();cl();OR=null;RC.textContent='未选择区域';document.getElementById('refFrameContainer').style.display='none';OS.textContent='';ST.textContent='已选择: '+sf.name;al('info','已选择: '+sf.name);});
+// 开始转换
+function runJob(){
+  if(ST8==='processing_video'||!sf)return;
+  // 检查是否框选了区域
+  if(!DD&&ST8!=='draft_ready'&&ST8!=='idle'){
+    if(!confirm('未选择聊天区域，将使用全图分析。建议只框选聊天内容区域，是否继续？')){
+      stepHighlight(2);return;
+    }
+  }
+  ST8='processing_video';JR=true;BG.disabled=true;BG.textContent='处理中...';he();hd();cl();J=null;stepHighlight(5);
+  var fd=new FormData();fd.append('file',sf);
+  fd.append('interval',document.getElementById('videoInterval').value);
+  fd.append('blur_threshold',document.getElementById('blurThreshold').value);
+  fd.append('dedup_threshold',document.getElementById('dedupThreshold').value);
+  fd.append('global_dedup',document.getElementById('globalDedup').checked?'true':'false');
+  if(OR){fd.append('ocr_region_x',OR.x);fd.append('ocr_region_y',OR.y);fd.append('ocr_region_w',OR.width);fd.append('ocr_region_h',OR.height);}
+  fd.append('exclude_words',EW.value||'');
+  fetch('/api/video/jobs',{method:'POST',body:fd}).then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail);});})
+  .then(function(d){J=d.job_id;al('info','开始处理: '+d.filename);pv(d.job_id);})
+  .catch(function(e){se('处理失败: '+e.message);ST8='selected';JR=false;BG.disabled=false;BG.textContent='开始转换';});
+}
 
-// 处理视频并生成 PDF：正式提交
-var runJob=function(){
- if(JR||!sf)return;JR=true;BG.disabled=true;BG.textContent='处理中...';he();hd();cl();J=null;
- var fd=new FormData();fd.append('file',sf);
- fd.append('interval',document.getElementById('videoInterval').value);
- fd.append('blur_threshold',document.getElementById('blurThreshold').value);
- fd.append('dedup_threshold',document.getElementById('dedupThreshold').value);
- fd.append('global_dedup',document.getElementById('globalDedup').checked?'true':'false');
- if(OR){fd.append('ocr_region_x',OR.x);fd.append('ocr_region_y',OR.y);fd.append('ocr_region_w',OR.width);fd.append('ocr_region_h',OR.height);}
- fd.append('exclude_words',EW.value||'');
- fetch('/api/video/jobs',{method:'POST',body:fd}).then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail);});})
- .then(function(d){J=d.job_id;al('info','处理中: '+d.filename);pv(d.job_id);})
- .catch(function(e){se('处理失败: '+e.message);JR=false;BG.disabled=false;BG.textContent='处理视频并生成 PDF';});
-};
+function pv(id){
+  if(PO)clearInterval(PO);
+  PO=setInterval(function(){fetch('/api/video/jobs/'+id).then(function(r){return r.json();}).then(function(d){
+    sp(d.current,d.total);ST.textContent=d.status==='processing'?'正在处理 '+d.current+'/'+d.total:'';
+    if(d.logs&&d.logs.length){LP.innerHTML='';for(var i=0;i<d.logs.length;i++)al(d.logs[i][0],d.logs[i][1]);}
+    if(d.status==='done'){
+      if(PO)clearInterval(PO);PO=null;ST8='review_ready';JR=false;BG.disabled=false;BG.textContent='生成 PDF';
+      BG.onclick=genPdf;rv(d.frames,d.frame_details);al('done','保留 '+d.total+' 帧');ST.textContent='完成 '+d.total+' 帧，可删除/排序后生成 PDF';
+      stepHighlight(4);sp(1,1);
+    }else if(d.status==='error'){if(PO)clearInterval(PO);PO=null;ST8='failed';JR=false;BG.disabled=false;BG.textContent='重新处理';BG.onclick=runJob;se('失败: '+d.error);}
+  });},500);
+}
 
-function pv(id){if(PO)clearInterval(PO);PO=setInterval(function(){fetch('/api/video/jobs/'+id).then(function(r){return r.json();}).then(function(d){
- sp(d.current,d.total);ST.textContent=d.status==='processing'?'处理中...':d.status==='done'?'完成 '+d.total+' 帧':'';
- if(d.logs&&d.logs.length){LP.innerHTML='';for(var i=0;i<d.logs.length;i++)al(d.logs[i][0],d.logs[i][1]);}
- if(d.status==='done'){if(PO)clearInterval(PO);PO=null;JR=false;BG.disabled=false;BG.textContent='生成 PDF';BG.onclick=genPdf;rv(d.frames,d.frame_details);al('done','保留 '+d.total+' 帧');}
- else if(d.status==='error'){if(PO)clearInterval(PO);PO=null;JR=false;BG.disabled=false;BG.textContent='处理视频并生成 PDF';se('失败: '+d.error);}
-});},500);}
+function genPdf(){
+  if(JR||!J||ST8!=='review_ready')return;
+  ST8='exporting_pdf';JR=true;BG.disabled=true;BG.textContent='正在生成 PDF...';he();hd();
+  sp(0,1);PT.textContent='0%';PF.style.width='0%';
+  var pi=setInterval(function(){PF.style.width=Math.min(parseInt(PF.style.width)+5,90)+'%';PT.textContent=PF.style.width;},1000);
 
-var genPdf=function(){
- if(JR||!J)return;JR=true;BG.disabled=true;BG.textContent='生成 PDF 中...';he();hd();
- fetch('/api/video/jobs/'+J+'/frames',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({filenames:FN})})
- .then(function(){var fd=new FormData();fd.append('layout',document.getElementById('videoLayout').value);fd.append('show_number',document.getElementById('videoShowNumber').checked?'true':'false');fd.append('show_page_number','false');return fetch('/api/video/jobs/'+J+'/pdf',{method:'POST',body:fd});})
- .then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail);});})
- .then(function(d){if(d.status==='pdf_done'){al('done','PDF 成功');ST.textContent='PDF 生成成功';DA.classList.add('show');DL.href='/api/video/jobs/'+J+'/download';BG.disabled=false;BG.textContent='重新生成';}else se('失败');JR=false;})
- .catch(function(e){se('失败: '+e.message);JR=false;BG.disabled=false;});
-};
+  fetch('/api/video/jobs/'+J+'/frames',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({filenames:FN})})
+  .then(function(){var fd=new FormData();fd.append('layout',document.getElementById('videoLayout').value);
+    fd.append('show_number',document.getElementById('videoShowNumber').checked?'true':'false');fd.append('show_page_number','false');
+    return fetch('/api/video/jobs/'+J+'/pdf',{method:'POST',body:fd});})
+  .then(function(r){
+    if(!r.ok)return r.json().then(function(e){throw new Error(e.detail||'生成失败');});
+    return r.json();
+  })
+  .then(function(d){
+    if(d.status==='pdf_done'){
+      clearInterval(pi);PF.style.width='100%';PT.textContent='100%';
+      ST8='pdf_ready';al('done','PDF 生成成功');ST.textContent='PDF 生成成功';
+      DA.classList.add('show');DL.href='/api/video/jobs/'+J+'/download';
+      BG.disabled=false;BG.textContent='重新生成 PDF';BG.onclick=genPdf;
+    }else{se('PDF 生成失败');ST8='review_ready';JR=false;BG.disabled=false;}
+  })
+  .catch(function(e){clearInterval(pi);se('PDF 失败: '+e.message);ST8='review_ready';JR=false;BG.disabled=false;BG.textContent='重新生成 PDF';});
+}
 
-// 初始绑定
+// 初始化
 BG.addEventListener('click',runJob);
+TZ.addEventListener('change',function(){if(FN.length>0){rv(FN,[]);}});
 })();
 
 </body>
