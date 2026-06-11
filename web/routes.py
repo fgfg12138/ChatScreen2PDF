@@ -102,15 +102,30 @@ def _process_job(job_id: str) -> None:
         output_path = Path(job["temp_dir"]) / f"{first_stem}.pdf"
 
         job["logs"].append(("info", f"正在生成 PDF (布局: {layout}, 缩放: {scale_mode})..."))
-        result = build_grid_pdf(
-            image_paths, output_path,
-            scale_mode=scale_mode,
-            layout=layout,
-            direction=direction,
-            title=title or first_stem,
-            show_number=show_number,
-            show_page_number=show_page_number,
-        )
+        if job.get("enable_cover"):
+            from core.pdf_builder import build_evidence_pdf
+            result = build_evidence_pdf(
+                image_paths, output_path,
+                scale_mode=scale_mode,
+                layout=layout,
+                direction=direction,
+                title=title or first_stem,
+                show_number=show_number,
+                show_page_number=show_page_number,
+                enable_cover=True,
+                watermark=job.get("watermark", ""),
+                source_files=image_paths,
+            )
+        else:
+            result = build_grid_pdf(
+                image_paths, output_path,
+                scale_mode=scale_mode,
+                layout=layout,
+                direction=direction,
+                title=title or first_stem,
+                show_number=show_number,
+                show_page_number=show_page_number,
+            )
 
         job["status"] = "done"
         job["result_filename"] = result.name
@@ -203,6 +218,8 @@ async def create_job(
         "title": title,
         "show_number": show_number.lower() == "true",
         "show_page_number": show_page_number.lower() == "true",
+        "watermark": "",
+        "enable_cover": False,
     }
     _jobs[job_id] = job
 
@@ -367,6 +384,8 @@ async def create_long_pdf(
     scale_mode: str = Form("fit"),
     show_number: str = Form("true"),
     show_page_number: str = Form("false"),
+    watermark: str = Form(""),
+    enable_cover: str = Form("false"),
 ):
     """根据长截图切片生成 PDF。"""
     job = _jobs.get(job_id)
@@ -390,15 +409,31 @@ async def create_long_pdf(
     job["status"] = "pdf_generating"
 
     try:
-        result = build_grid_pdf(
-            slices, output_path,
-            scale_mode=scale_mode,
-            layout=layout,
-            direction=direction,
-            title=pdf_title,
-            show_number=show_number.lower() == "true",
-            show_page_number=show_page_number.lower() == "true",
-        )
+        use_cover = enable_cover.lower() == "true"
+        if use_cover:
+            from core.pdf_builder import build_evidence_pdf
+            result = build_evidence_pdf(
+                slices, output_path,
+                scale_mode=scale_mode,
+                layout=layout,
+                direction=direction,
+                title=pdf_title,
+                show_number=show_number.lower() == "true",
+                show_page_number=show_page_number.lower() == "true",
+                enable_cover=True,
+                watermark=watermark,
+                source_files=[Path(job.get("src_file", ""))],
+            )
+        else:
+            result = build_grid_pdf(
+                slices, output_path,
+                scale_mode=scale_mode,
+                layout=layout,
+                direction=direction,
+                title=pdf_title,
+                show_number=show_number.lower() == "true",
+                show_page_number=show_page_number.lower() == "true",
+            )
         job["status"] = "pdf_done"
         job["result_filename"] = result.name
         job["logs"].append(("done", f"PDF 生成成功: {result.name}"))
@@ -530,8 +565,77 @@ async def get_video_job_status(job_id: str):
         "current": job["current"],
         "logs": job["logs"],
         "frames": job.get("frame_filenames", []),
+        "frames_dir": str(Path(job.get("temp_dir", "")) / "frames") if job.get("temp_dir") else "",
         "error": job.get("error", ""),
     }
+
+
+@router.get("/api/files/{job_id}/frames/{filename}")
+async def serve_frame_image(job_id: str, filename: str):
+    """提供视频帧图片预览。"""
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404)
+    fp = Path(job["temp_dir"]) / "frames" / filename
+    if not fp.exists():
+        raise HTTPException(status_code=404)
+    return FileResponse(str(fp), media_type="image/jpeg")
+
+
+@router.get("/api/files/{job_id}/slices/{filename}")
+async def serve_slice_image(job_id: str, filename: str):
+    """提供切片图片预览。"""
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404)
+    fp = Path(job["temp_dir"]) / "slices" / filename
+    if not fp.exists():
+        raise HTTPException(status_code=404)
+    return FileResponse(str(fp), media_type="image/jpeg")
+
+
+@router.put("/api/video/jobs/{job_id}/frames")
+async def update_video_frames(job_id: str, body: dict):
+    """更新视频帧顺序（删除/排序后提交）。"""
+    filenames = body.get("filenames", [])
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    frames_dir = Path(job["temp_dir"]) / "frames"
+    new_frames = []
+    new_filenames = []
+    for fname in filenames:
+        fp = frames_dir / fname
+        if fp.exists():
+            new_frames.append(str(fp))
+            new_filenames.append(fname)
+    job["frames"] = new_frames
+    job["frame_filenames"] = new_filenames
+    job["total"] = len(new_frames)
+    job["logs"].append(("info", f"已更新帧顺序: {len(new_filenames)} 帧"))
+    return {"total": len(new_filenames)}
+
+
+@router.put("/api/long/jobs/{job_id}/slices")
+async def update_long_slices(job_id: str, body: dict):
+    """更新切片顺序。"""
+    filenames = body.get("filenames", [])
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    slices_dir = Path(job["temp_dir"]) / "slices"
+    new_slices = []
+    new_filenames = []
+    for fname in filenames:
+        fp = slices_dir / fname
+        if fp.exists():
+            new_slices.append(str(fp))
+            new_filenames.append(fname)
+    job["slices"] = new_slices
+    job["slice_filenames"] = new_filenames
+    job["total"] = len(new_filenames)
+    job["logs"].append(("info", f"已更新切片顺序: {len(new_filenames)} 片"))
+    return {"total": len(new_filenames)}
 
 
 @router.post("/api/video/jobs/{job_id}/pdf")
@@ -543,6 +647,8 @@ async def create_video_pdf(
     scale_mode: str = Form("fit"),
     show_number: str = Form("true"),
     show_page_number: str = Form("false"),
+    watermark: str = Form(""),
+    enable_cover: str = Form("false"),
 ):
     """根据视频帧生成 PDF。"""
     job = _jobs.get(job_id)
@@ -565,15 +671,31 @@ async def create_video_pdf(
     job["status"] = "pdf_generating"
 
     try:
-        result = build_grid_pdf(
-            frames, output_path,
-            scale_mode=scale_mode,
-            layout=layout,
-            direction=direction,
-            title=pdf_title,
-            show_number=show_number.lower() == "true",
-            show_page_number=show_page_number.lower() == "true",
-        )
+        use_cover = enable_cover.lower() == "true"
+        if use_cover:
+            from core.pdf_builder import build_evidence_pdf
+            result = build_evidence_pdf(
+                frames, output_path,
+                scale_mode=scale_mode,
+                layout=layout,
+                direction=direction,
+                title=pdf_title,
+                show_number=show_number.lower() == "true",
+                show_page_number=show_page_number.lower() == "true",
+                enable_cover=True,
+                watermark=watermark,
+                source_files=[Path(job.get("src_file", ""))],
+            )
+        else:
+            result = build_grid_pdf(
+                frames, output_path,
+                scale_mode=scale_mode,
+                layout=layout,
+                direction=direction,
+                title=pdf_title,
+                show_number=show_number.lower() == "true",
+                show_page_number=show_page_number.lower() == "true",
+            )
         job["status"] = "pdf_done"
         job["result_filename"] = result.name
         job["logs"].append(("done", f"PDF 生成成功: {result.name}"))
