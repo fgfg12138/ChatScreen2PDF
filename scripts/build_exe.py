@@ -136,8 +136,8 @@ def _pre_build_checks():
     # 检查 index.html 有 </script> 闭合标签（缺失会导致浏览器 SyntaxError，整个 JS 报废）
     if index_path.exists():
         content = index_path.read_text(encoding="utf-8")
-        if "</script>" not in content:
-            errors.append("web/static/index.html 缺少 </script> 闭合标签，浏览器将无法执行 JS")
+        if content.count("</script>") != 1:
+            errors.append(f"web/static/index.html 应有恰好 1 个 </script>（位于末尾），实际有 {content.count(chr(60) + chr(47) + "script>")} 个")
 
     # 检查 routes.py 包含新 API
     routes_path = PROJECT_ROOT / "web" / "routes.py"
