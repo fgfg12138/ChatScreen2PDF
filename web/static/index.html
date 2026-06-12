@@ -354,6 +354,7 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
     showGlobalError('异步错误: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)));
   });
 })();
+</script>
 
 // ── safeGet: 安全 DOM 获取 ────────────────────────────────
 function safeGet(id) {
@@ -387,6 +388,7 @@ function safeGet(id) {
     // 不阻断初始化
   });
 })();
+</script>
 
 (function() {
   // ── DOM ──
@@ -705,6 +707,7 @@ function safeGet(id) {
     }
   });
 })();
+</script>
 
 // ── 长截图处理 ──
 (function() {
@@ -901,6 +904,7 @@ function safeGet(id) {
       .catch(e => { showError('生成失败: ' + e.message); jobRunning = false; btnGenerate.disabled = false; });
   });
 })();
+</script>
 
 // ── 视频处理（选择→参考帧→框选→开始转换）──
 (function(){
@@ -1065,6 +1069,7 @@ function genPdf(){
 BG.addEventListener('click',runJob);
 TZ.addEventListener('change',function(){if(FN.length>0){rv(FN,[]);}});
 })();
+</script>
 
 </body>
 </html>
