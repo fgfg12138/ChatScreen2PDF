@@ -34,6 +34,33 @@ router = APIRouter()
 # 支持的图片扩展名
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
+
+# ── 健康检查 + 版本信息 ──────────────────────────────────
+
+@router.get("/api/health")
+async def health_check():
+    """健康检查接口，前端依赖此接口确认后端可用。"""
+    return {
+        "success": True,
+        "version": "1.0.0-ocr-ready",
+        "message": "ChatScreen2PDF backend OK",
+        "routes": {
+            "pdf_jobs": True,
+            "long_jobs": True,
+            "video_draft": True,
+            "video_jobs": True,
+            "video_pdf": True,
+        },
+    }
+
+
+from fastapi.responses import Response
+
+@router.get("/favicon.ico")
+async def favicon():
+    """返回空 favicon，避免 404 干扰。"""
+    return Response(status_code=204)
+
 # 临时文件根目录
 TEMP_ROOT = Path(tempfile.gettempdir()) / "chatScreen2pdf_web"
 TEMP_ROOT.mkdir(parents=True, exist_ok=True)

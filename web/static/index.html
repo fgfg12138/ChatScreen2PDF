@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ChatScreen2PDF — 截图生成 PDF</title>
+<title>ChatScreen2PDF — 聊天记录证据 PDF 工具 v1.0.0-ocr-ready</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; }
@@ -69,8 +69,9 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
 <div class="container">
   <!-- 头部 -->
   <div class="header">
-    <h1>截图生成 PDF</h1>
+    <h1>聊天记录证据 PDF 工具</h1>
     <span class="local-badge">所有处理仅在本地完成</span>
+    <span style="background:#555;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px">v1.0.0-ocr-ready</span>
   </div>
 
   <!-- 入口标签 -->
@@ -332,49 +333,104 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
 </div>
 
 <script>
+// ── 全局错误捕获 ──────────────────────────────────────────
+(function() {
+  var errContainer = document.createElement('div');
+  errContainer.id = 'global-error-bar';
+  errContainer.style.cssText = 'display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#c0392b;color:#fff;padding:10px 20px;font-size:13px;text-align:center;';
+  document.body.prepend(errContainer);
+
+  function showGlobalError(msg) {
+    errContainer.textContent = '[ChatScreen2PDF] ' + msg;
+    errContainer.style.display = 'block';
+    console.error(msg);
+  }
+
+  window.onerror = function(msg, url, line, col, err) {
+    showGlobalError('JS 错误: ' + msg + ' (行 ' + line + ')');
+    return true;
+  };
+  window.addEventListener('unhandledrejection', function(e) {
+    showGlobalError('异步错误: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)));
+  });
+})();
+
+// ── safeGet: 安全 DOM 获取 ────────────────────────────────
+function safeGet(id) {
+  var el = safeGet(id);
+  if (!el) {
+    var msg = '关键元素 #' + id + ' 不存在，请确认页面加载完整';
+    var bar = safeGet('global-error-bar');
+    if (bar) { bar.textContent = '[ChatScreen2PDF] ' + msg; bar.style.display = 'block'; }
+    console.error(msg);
+  }
+  return el;
+}
+
+// ── 健康检查（不阻断初始化） ─────────────────────────────
+(function() {
+  fetch('/api/health').then(function(r){return r.json();}).then(function(d){
+    if(d.success){
+      console.log('ChatScreen2PDF WebUI initialized OK (backend v' + d.version + ')');
+      var banner = document.createElement('div');
+      banner.style.cssText = 'background:#2e7d32;color:#fff;text-align:center;padding:3px;font-size:12px';
+      banner.textContent = '前端已初始化 v' + d.version;
+      document.body.prepend(banner);
+    } else {
+      showGlobalError('后端健康检查失败：后端响应异常');
+    }
+  }).catch(function(e){
+    var msg = '后端健康检查失败：无法连接后端服务 (' + (e.message || '未知错误') + ')';
+    var bar = safeGet('global-error-bar');
+    if (bar) { bar.textContent = '[ChatScreen2PDF] ' + msg; bar.style.display = 'block'; }
+    console.warn(msg);
+    // 不阻断初始化
+  });
+})();
+
 (function() {
   // ── DOM ──
-  const fileInput = document.getElementById('fileInput');
-  const btnSelect = document.getElementById('btnSelect');
-  const btnGenerate = document.getElementById('btnGenerate');
-  const thumbGrid = document.getElementById('thumbGrid');
-  const thumbPlaceholder = document.getElementById('thumbPlaceholder');
-  const scaleMode = document.getElementById('scaleMode');
-  const titleInput = document.getElementById('titleInput');
-  const layoutSelect = document.getElementById('layoutSelect');
-  const directionSelect = document.getElementById('directionSelect');
-  const showNumber = document.getElementById('showNumber');
-  const showPageNumber = document.getElementById('showPageNumber');
-  const statusText = document.getElementById('statusText');
-  const progressWrap = document.getElementById('progressWrap');
-  const progressFill = document.getElementById('progressFill');
-  const progressText = document.getElementById('progressText');
-  const logPanel = document.getElementById('logPanel');
-  const errorMsg = document.getElementById('errorMsg');
-  const downloadArea = document.getElementById('downloadArea');
-  const downloadLink = document.getElementById('downloadLink');
+  const fileInput = safeGet('fileInput');
+  const btnSelect = safeGet('btnSelect');
+  const btnGenerate = safeGet('btnGenerate');
+  const thumbGrid = safeGet('thumbGrid');
+  const thumbPlaceholder = safeGet('thumbPlaceholder');
+  const scaleMode = safeGet('scaleMode');
+  const titleInput = safeGet('titleInput');
+  const layoutSelect = safeGet('layoutSelect');
+  const directionSelect = safeGet('directionSelect');
+  const showNumber = safeGet('showNumber');
+  const showPageNumber = safeGet('showPageNumber');
+  const statusText = safeGet('statusText');
+  const progressWrap = safeGet('progressWrap');
+  const progressFill = safeGet('progressFill');
+  const progressText = safeGet('progressText');
+  const logPanel = safeGet('logPanel');
+  const errorMsg = safeGet('errorMsg');
+  const downloadArea = safeGet('downloadArea');
+  const downloadLink = safeGet('downloadLink');
 
   // 入口按钮
-  const tabScreenshot = document.getElementById('tabScreenshot');
-  const tabVideo = document.getElementById('tabVideo');
-  const tabLong = document.getElementById('tabLong');
+  const tabScreenshot = safeGet('tabScreenshot');
+  const tabVideo = safeGet('tabVideo');
+  const tabLong = safeGet('tabLong');
 
   // 隐藏的长截图区域
-  const longSection = document.getElementById('longSection');
+  const longSection = safeGet('longSection');
 
   tabScreenshot.addEventListener('click', () => {
     tabScreenshot.classList.add('active');
     tabVideo.classList.remove('active');
     tabLong.classList.remove('active');
     longSection.style.display = 'none';
-    document.getElementById('screenshotSection').style.display = 'block';
+    safeGet('screenshotSection').style.display = 'block';
   });
 
   tabLong.addEventListener('click', () => {
     tabLong.classList.add('active');
     tabScreenshot.classList.remove('active');
     tabVideo.classList.remove('active');
-    document.getElementById('screenshotSection').style.display = 'none';
+    safeGet('screenshotSection').style.display = 'none';
     longSection.style.display = 'block';
   });
 
@@ -382,9 +438,9 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
     tabVideo.classList.add('active');
     tabScreenshot.classList.remove('active');
     tabLong.classList.remove('active');
-    document.getElementById('screenshotSection').style.display = 'none';
+    safeGet('screenshotSection').style.display = 'none';
     longSection.style.display = 'none';
-    document.getElementById('videoSection').style.display = 'block';
+    safeGet('videoSection').style.display = 'block';
   });
 
   // ── 状态 ──
@@ -652,21 +708,21 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
 
 // ── 长截图处理 ──
 (function() {
-  const fileInput = document.getElementById('longFileInput');
-  const btnSelect = document.getElementById('longBtnSelect');
-  const btnGenerate = document.getElementById('longBtnGenerate');
-  const thumbGrid = document.getElementById('longThumbGrid');
-  const placeholder = document.getElementById('longThumbPlaceholder');
-  const sliceHeight = document.getElementById('sliceHeight');
-  const overlap = document.getElementById('overlap');
-  const statusText = document.getElementById('longStatusText');
-  const progressWrap = document.getElementById('longProgressWrap');
-  const progressFill = document.getElementById('longProgressFill');
-  const progressText = document.getElementById('longProgressText');
-  const logPanel = document.getElementById('longLogPanel');
-  const errorMsg = document.getElementById('longErrorMsg');
-  const downloadArea = document.getElementById('longDownloadArea');
-  const downloadLink = document.getElementById('longDownloadLink');
+  const fileInput = safeGet('longFileInput');
+  const btnSelect = safeGet('longBtnSelect');
+  const btnGenerate = safeGet('longBtnGenerate');
+  const thumbGrid = safeGet('longThumbGrid');
+  const placeholder = safeGet('longThumbPlaceholder');
+  const sliceHeight = safeGet('sliceHeight');
+  const overlap = safeGet('overlap');
+  const statusText = safeGet('longStatusText');
+  const progressWrap = safeGet('longProgressWrap');
+  const progressFill = safeGet('longProgressFill');
+  const progressText = safeGet('longProgressText');
+  const logPanel = safeGet('longLogPanel');
+  const errorMsg = safeGet('longErrorMsg');
+  const downloadArea = safeGet('longDownloadArea');
+  const downloadLink = safeGet('longDownloadLink');
 
   let jobId = null, longJobId = null;
   let polling = null;
@@ -821,11 +877,11 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
       body:JSON.stringify({filenames: sliceNames})
     }).then(() => {
       const formData = new FormData();
-      formData.append('layout', document.getElementById('longLayout').value);
-      formData.append('direction', document.getElementById('longDirection').value);
+      formData.append('layout', safeGet('longLayout').value);
+      formData.append('direction', safeGet('longDirection').value);
       formData.append('scale_mode', 'fit');
-      formData.append('show_number', document.getElementById('longShowNumber').checked ? 'true' : 'false');
-      formData.append('show_page_number', document.getElementById('longShowPageNumber').checked ? 'true' : 'false');
+      formData.append('show_number', safeGet('longShowNumber').checked ? 'true' : 'false');
+      formData.append('show_page_number', safeGet('longShowPageNumber').checked ? 'true' : 'false');
       return fetch('/api/long/jobs/' + jobId + '/pdf', { method: 'POST', body: formData });
     })
       .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail); }))
@@ -848,7 +904,7 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
 
 // ── 视频处理（选择→参考帧→框选→开始转换）──
 (function(){
-var FI=document.getElementById('videoFileInput'),BS=document.getElementById('videoBtnSelect'),BG=document.getElementById('videoBtnGenerate'),LR=document.getElementById('videoBtnLoadRef'),CR=document.getElementById('videoBtnClearRegion'),TG=document.getElementById('videoThumbGrid'),PH=document.getElementById('videoThumbPlaceholder'),ST=document.getElementById('videoStatusText'),PW=document.getElementById('videoProgressWrap'),PF=document.getElementById('videoProgressFill'),PT=document.getElementById('videoProgressText'),LP=document.getElementById('videoLogPanel'),EM=document.getElementById('videoErrorMsg'),DA=document.getElementById('videoDownloadArea'),DL=document.getElementById('videoDownloadLink'),OS=document.getElementById('ocrStatus'),RC=document.getElementById('regionCoords'),RF=document.getElementById('refFrame'),RCA=document.getElementById('refCanvas'),EW=document.getElementById('excludeWords'),FNm=document.getElementById('videoFileName'),FS=document.getElementById('videoFileSize'),TS=document.getElementById('thumbStats'),OC=document.getElementById('ocrSection'),S2=document.getElementById('step2'),S3=document.getElementById('step3'),S4=document.getElementById('step4'),S5=document.getElementById('step5'),CF=document.getElementById('videoBtnConfirmRegion'),UF=document.getElementById('videoBtnUseFull'),TZ=document.getElementById('thumbSizeSelect');
+var FI=safeGet('videoFileInput'),BS=safeGet('videoBtnSelect'),BG=safeGet('videoBtnGenerate'),LR=safeGet('videoBtnLoadRef'),CR=safeGet('videoBtnClearRegion'),TG=safeGet('videoThumbGrid'),PH=safeGet('videoThumbPlaceholder'),ST=safeGet('videoStatusText'),PW=safeGet('videoProgressWrap'),PF=safeGet('videoProgressFill'),PT=safeGet('videoProgressText'),LP=safeGet('videoLogPanel'),EM=safeGet('videoErrorMsg'),DA=safeGet('videoDownloadArea'),DL=safeGet('videoDownloadLink'),OS=safeGet('ocrStatus'),RC=safeGet('regionCoords'),RF=safeGet('refFrame'),RCA=safeGet('refCanvas'),EW=safeGet('excludeWords'),FNm=safeGet('videoFileName'),FS=safeGet('videoFileSize'),TS=safeGet('thumbStats'),OC=safeGet('ocrSection'),S2=safeGet('step2'),S3=safeGet('step3'),S4=safeGet('step4'),S5=safeGet('step5'),CF=safeGet('videoBtnConfirmRegion'),UF=safeGet('videoBtnUseFull'),TZ=safeGet('thumbSizeSelect');
 var sf=null,dj=null,J=null,PO=null,ST8='idle',FN=[],OR=null,RW=0,RH=0,DR=false,DSX=0,DSY=0,DD=false;
 
 function al(s,m){var p=document.createElement('div');p.className='line-'+s;p.textContent=m;LP.appendChild(p);LP.scrollTop=LP.scrollHeight;}
@@ -860,7 +916,7 @@ function sp(c,t){if(t>0){PW.style.display='block';PF.style.width=Math.round(c/t*
 function resetAll(){
   cl();if(PO)clearInterval(PO);PO=null;J=null;dj=null;OR=null;RW=0;RH=0;FN=[];DD=false;ST8='idle';
   TG.innerHTML='';PH.style.display='';PH.textContent='请选择 MP4 视频';
-  OC.style.display='none';document.getElementById('refFrameContainer').style.display='none';
+  OC.style.display='none';safeGet('refFrameContainer').style.display='none';
   RC.textContent='未选择';OS.textContent='';hd();he();sp(0,0);PW.style.display='none';
   ST.textContent='请选择 MP4 视频';al('info','已重置，请选择新视频');
 }
@@ -894,7 +950,7 @@ LR.addEventListener('click',function(){
   .then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail||'');});})
   .then(function(d){dj=d.job_id;return fetch('/api/video/reference-frame',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'job_id='+encodeURIComponent(dj)});})
   .then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail||'');});})
-  .then(function(d){RW=d.width;RH=d.height;RF.src=d.preview_url+'?t='+Date.now();document.getElementById('refFrameContainer').style.display='block';ST8='draft_ready';stepHighlight(2);
+  .then(function(d){RW=d.width;RH=d.height;RF.src=d.preview_url+'?t='+Date.now();safeGet('refFrameContainer').style.display='block';ST8='draft_ready';stepHighlight(2);
     RF.onload=function(){var c=RCA.getContext('2d');RCA.width=RCA.offsetWidth;RCA.height=RCA.offsetHeight;c.clearRect(0,0,RCA.width,RCA.height);};al('info','参考帧加载成功 ('+d.width+'x'+d.height+')');})
   .catch(function(e){se('参考帧失败: '+e.message);});
 });
@@ -956,10 +1012,10 @@ function runJob(){
   }
   ST8='processing_video';JR=true;BG.disabled=true;BG.textContent='处理中...';he();hd();cl();J=null;stepHighlight(5);
   var fd=new FormData();fd.append('file',sf);
-  fd.append('interval',document.getElementById('videoInterval').value);
-  fd.append('blur_threshold',document.getElementById('blurThreshold').value);
-  fd.append('dedup_threshold',document.getElementById('dedupThreshold').value);
-  fd.append('global_dedup',document.getElementById('globalDedup').checked?'true':'false');
+  fd.append('interval',safeGet('videoInterval').value);
+  fd.append('blur_threshold',safeGet('blurThreshold').value);
+  fd.append('dedup_threshold',safeGet('dedupThreshold').value);
+  fd.append('global_dedup',safeGet('globalDedup').checked?'true':'false');
   if(OR){fd.append('ocr_region_x',OR.x);fd.append('ocr_region_y',OR.y);fd.append('ocr_region_w',OR.width);fd.append('ocr_region_h',OR.height);}
   fd.append('exclude_words',EW.value||'');
   fetch('/api/video/jobs',{method:'POST',body:fd}).then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail);});})
@@ -987,8 +1043,8 @@ function genPdf(){
   var pi=setInterval(function(){PF.style.width=Math.min(parseInt(PF.style.width)+5,90)+'%';PT.textContent=PF.style.width;},1000);
 
   fetch('/api/video/jobs/'+J+'/frames',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({filenames:FN})})
-  .then(function(){var fd=new FormData();fd.append('layout',document.getElementById('videoLayout').value);
-    fd.append('show_number',document.getElementById('videoShowNumber').checked?'true':'false');fd.append('show_page_number','false');
+  .then(function(){var fd=new FormData();fd.append('layout',safeGet('videoLayout').value);
+    fd.append('show_number',safeGet('videoShowNumber').checked?'true':'false');fd.append('show_page_number','false');
     return fetch('/api/video/jobs/'+J+'/pdf',{method:'POST',body:fd});})
   .then(function(r){
     if(!r.ok)return r.json().then(function(e){throw new Error(e.detail||'生成失败');});
