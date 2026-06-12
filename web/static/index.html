@@ -913,6 +913,12 @@ function hd(){DA.classList.remove('show');DL.href='#';}
 function sp(c,t){if(t>0){PW.style.display='block';PF.style.width=Math.round(c/t*100)+'%';PT.textContent=c+'/'+t;}}
 
 // 重置所有状态
+function lockTabs(lock){
+  var tabs=[safeGet("tabScreenshot"),safeGet("tabVideo"),safeGet("tabLong")];
+  for(var i=0;i<tabs.length;i++){
+    if(tabs[i]){tabs[i].disabled=lock;tabs[i].style.opacity=lock?"0.5":"1";tabs[i].style.pointerEvents=lock?"none":"auto";}
+  }
+}
 function resetAll(){
   cl();if(PO)clearInterval(PO);PO=null;J=null;dj=null;OR=null;RW=0;RH=0;FN=[];DD=false;ST8='idle';
   TG.innerHTML='';PH.style.display='';PH.textContent='请选择 MP4 视频';
@@ -1011,7 +1017,7 @@ function runJob(){
     }
     DD=true;
   }
-  ST8='processing_video';JR=true;BG.disabled=true;BG.textContent='处理中...';he();hd();cl();J=null;stepHighlight(5);
+  ST8='processing_video';JR=true;BG.disabled=true;BG.textContent='处理中...';he();hd();cl();J=null;stepHighlight(5);lockTabs(true);
   var fd=new FormData();fd.append('file',sf);
   fd.append('interval',safeGet('videoInterval').value);
   fd.append('blur_threshold',safeGet('blurThreshold').value);
@@ -1021,7 +1027,7 @@ function runJob(){
   fd.append('exclude_words',EW.value||'');
   fetch('/api/video/jobs',{method:'POST',body:fd}).then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail);});})
   .then(function(d){J=d.job_id;al('info','开始处理: '+d.filename);pv(d.job_id);})
-  .catch(function(e){se('处理失败: '+e.message);ST8='selected';JR=false;BG.disabled=false;BG.textContent='开始转换';});
+  .catch(function(e){se('处理失败: '+e.message);ST8='selected';JR=false;BG.disabled=false;BG.textContent='开始转换';lockTabs(false);});
 }
 
 function pv(id){
@@ -1030,10 +1036,10 @@ function pv(id){
     sp(d.current,d.total);ST.textContent=d.status==='processing'?'正在处理 '+d.current+'/'+d.total:'';
     if(d.logs&&d.logs.length){LP.innerHTML='';for(var i=0;i<d.logs.length;i++)al(d.logs[i][0],d.logs[i][1]);}
     if(d.status==='done'){
-      if(PO)clearInterval(PO);PO=null;ST8='review_ready';JR=false;BG.disabled=false;BG.textContent='生成 PDF';
+      if(PO)clearInterval(PO);PO=null;ST8='review_ready';JR=false;BG.disabled=false;BG.textContent='生成 PDF';lockTabs(false);
       BG.onclick=genPdf;rv(d.frames,d.frame_details);al('done','保留 '+d.total+' 帧');ST.textContent='完成 '+d.total+' 帧，可删除/排序后生成 PDF';
       stepHighlight(4);sp(1,1);
-    }else if(d.status==='error'){if(PO)clearInterval(PO);PO=null;ST8='failed';JR=false;BG.disabled=false;BG.textContent='重新处理';BG.onclick=runJob;se('失败: '+d.error);}
+    }else if(d.status==='error'){if(PO)clearInterval(PO);PO=null;ST8='failed';JR=false;BG.disabled=false;BG.textContent='重新处理';lockTabs(false);BG.onclick=runJob;se('失败: '+d.error);}
   });},500);
 }
 

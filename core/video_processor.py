@@ -7,12 +7,12 @@ import logging
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_INTERVAL = 0.5  # 默认抽帧间隔（秒）
-BLUR_THRESHOLD = 30.0  # Laplacian 方差阈值，低于此值视为模糊
+BLUR_THRESHOLD = 10.0  # Laplacian 方差阈值，低于此值视为模糊
 
 
 def detect_blur(image_path: Path) -> float:
@@ -21,13 +21,16 @@ def detect_blur(image_path: Path) -> float:
     返回值：方差值，越大越清晰。
     """
     img = Image.open(image_path).convert("L")
-    # 标准 3x3 Laplacian 核（2D 卷积，不是 1D 拉平）
-    laplacian_kernel = ImageFilter.Kernel(
-        (3, 3), [-1, -1, -1, -1, 8, -1, -1, -1, -1], scale=1, offset=0
+    arr = np.array(img, dtype=np.float64)
+    # 标准 2D Laplacian（仅计算内部像素，避免边缘伪影）
+    lap = np.zeros_like(arr)
+    lap[1:-1, 1:-1] = (
+        -arr[0:-2, 1:-1] - arr[2:, 1:-1]
+        - arr[1:-1, 0:-2] - arr[1:-1, 2:]
+        + 4 * arr[1:-1, 1:-1]
     )
-    lap = img.filter(laplacian_kernel)
-    arr = np.array(lap, dtype=np.float64)
-    return float(arr.var())
+    interior = lap[1:-1, 1:-1]
+    return float(interior.var())
 
 def filter_frames(
     frame_paths: list[Path],

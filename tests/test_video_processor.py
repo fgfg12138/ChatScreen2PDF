@@ -12,14 +12,23 @@ from PIL import Image
 from core.video_processor import detect_blur, filter_frames
 
 
-def _create_image(path, width=320, height=240, color=(100, 150, 200)):
-    img = Image.new("RGB", (width, height), color)
-    img.save(str(path), "JPEG", quality=95)
+def _create_sharp_image(path, width=320, height=240):
+    """Create an image with drawn lines for Laplacian blur testing."""
+    from PIL import ImageDraw
+    import random
+    img = Image.new("RGB", (width, height), (200, 210, 220))
+    draw = ImageDraw.Draw(img)
+    random.seed(42)
+    for _ in range(30):
+        x1,y1=random.randint(0,width),random.randint(0,height)
+        x2,y2=random.randint(0,width),random.randint(0,height)
+        draw.line([(x1,y1),(x2,y2)], fill=(50,60,70), width=2)
+    img.save(str(path), "PNG")
     return path
 
 
 def test_detect_blur_sharp_image(tmp_path):
-    p = _create_image(tmp_path / "sharp.jpg")
+    p = _create_sharp_image(tmp_path / "sharp.jpg")
     v = detect_blur(p)
     assert v > 1.0  # 清晰图片有足够的方差
 
@@ -58,13 +67,13 @@ def test_filter_frames_empty():
 
 
 def test_filter_frames_all_clear(tmp_path):
-    imgs = [_create_image(tmp_path / f"{i}.jpg") for i in range(3)]
+    imgs = [_create_sharp_image(tmp_path / f"{i}.jpg") for i in range(3)]
     result = filter_frames(imgs, blur_threshold=0.1)
     assert len(result) >= 1  # 至少保留一些
 
 
 def test_filter_frames_drops_blurry(tmp_path):
-    clear = _create_image(tmp_path / "clear.jpg")
+    clear = _create_sharp_image(tmp_path / "clear.jpg")
     uniform = Image.new("RGB", (100, 100), (128, 128, 128))
     blurry = tmp_path / "blurry.jpg"
     uniform.save(str(blurry), "JPEG", quality=95)
