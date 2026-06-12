@@ -132,14 +132,14 @@ def _pre_build_checks():
         print("=" * 50)
         print("打包前检查失败：")
         for e in errors:
-            print("  ❌ " + e)
+            print("  [FAIL] " + e)
         print("=" * 50)
         print("请先切换到 feature/ocr-complete 分支：")
         print("  git checkout feature/ocr-complete")
         print("  git reset --hard origin/feature/ocr-complete")
         sys.exit(1)
     else:
-        print("打包前检查通过 ✅ - 确认包含新 UI 和新 API")
+        print("打包前检查通过 [OK] - 确认包含新 UI 和新 API")
 
 
 def build_exe(strip_metadata=False):
@@ -318,11 +318,11 @@ def _post_build_checks(dist_dir):
         print("=" * 50)
         print("打包后检查失败：")
         for e in errors:
-            print("  ❌ " + e)
+            print("  [FAIL] " + e)
         print("=" * 50)
         sys.exit(1)
     else:
-        print("打包后检查通过 ✅ - dist 内确认包含新 UI 和新 API")
+        print("打包后检查通过 [OK] - dist 内确认包含新 UI 和新 API")
 
 
 def build_zip(dist_dir):
