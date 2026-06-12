@@ -357,10 +357,10 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
 
 // ── safeGet: 安全 DOM 获取 ────────────────────────────────
 function safeGet(id) {
-  var el = safeGet(id);
+  var el = document.getElementById(id);
   if (!el) {
     var msg = '关键元素 #' + id + ' 不存在，请确认页面加载完整';
-    var bar = safeGet('global-error-bar');
+    var bar = document.getElementById('global-error-bar');
     if (bar) { bar.textContent = '[ChatScreen2PDF] ' + msg; bar.style.display = 'block'; }
     console.error(msg);
   }
@@ -381,7 +381,7 @@ function safeGet(id) {
     }
   }).catch(function(e){
     var msg = '后端健康检查失败：无法连接后端服务 (' + (e.message || '未知错误') + ')';
-    var bar = safeGet('global-error-bar');
+    var bar = document.getElementById('global-error-bar');
     if (bar) { bar.textContent = '[ChatScreen2PDF] ' + msg; bar.style.display = 'block'; }
     console.warn(msg);
     // 不阻断初始化

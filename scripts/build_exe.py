@@ -112,6 +112,26 @@ def _pre_build_checks():
     else:
         errors.append("web/static/index.html 不存在")
     
+    # 检查 safeGet 不包含递归调用（曾经导致 WebUI 完全瘫痪的 bug）
+    if index_path.exists():
+        content = index_path.read_text(encoding="utf-8")
+        # 禁止：safeGet 内部递归调用自身
+        forbidden_patterns = [
+            ("var el = safeGet(id)", "safeGet 递归调用自身（应使用 document.getElementById）"),
+            ("safeGet('global-error-bar')", "safeGet 内部再次调用 safeGet（应使用 document.getElementById）"),
+        ]
+        for pattern, desc in forbidden_patterns:
+            if pattern in content:
+                errors.append(f"web/static/index.html 含递归 bug: {desc}")
+        # 必须：safeGet 内部调用了正确的 DOM API
+        required_patterns = [
+            ("document.getElementById(id)", "safeGet 应使用 document.getElementById(id)"),
+            ("document.getElementById('global-error-bar')", "safeGet 应使用 document.getElementById('global-error-bar')"),
+        ]
+        for pattern, desc in required_patterns:
+            if pattern not in content:
+                errors.append(f"web/static/index.html 缺少: {desc}")
+    
     # 检查 routes.py 包含新 API
     routes_path = PROJECT_ROOT / "web" / "routes.py"
     api_funcs = [
