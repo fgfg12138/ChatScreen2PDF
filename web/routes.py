@@ -301,6 +301,8 @@ async def download_pdf(job_id: str):
     pdf_path = temp_dir / result_name
 
     if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail=f"PDF 文件不存在: {result_name}")
+
         raise HTTPException(status_code=404, detail="PDF 文件不存在")
 
     return FileResponse(
@@ -645,19 +647,23 @@ def _process_video_job(job_id: str) -> None:
         frame_details = []
         prev_lines = None
 
-        if ocr_avail:
-            job["logs"].append(("info", f"正在进行 OCR 连续性分析 (区域: {ocr_region or '全图'})..."))
+        # 只有当 OCR 可用且用户框选了聊天区域时才启用 OCR 去重
+        ocr_active = ocr_avail and job.get("ocr_region")
+        if ocr_active:
+            job["logs"].append(("info", f"正在进行 OCR 连续性分析 (区域: {job.get('ocr_region')})..."))
+        else:
+            job["logs"].append(("info", "OCR 区域未选择，使用图像去重"))
 
         filtered = []
         for idx, fp in enumerate(kept):
             curr_lines = []
-            if ocr_avail:
+            if ocr_active:
                 curr_lines = recognize_image(fp, ocr_region)
 
             result = classify_frame_by_ocr(
                 prev_lines, curr_lines,
                 exclude_words=exclude_words,
-                ocr_available=ocr_avail,
+                ocr_available=ocr_active,
             )
             result["id"] = fp.name
             result["index"] = idx
@@ -668,6 +674,8 @@ def _process_video_job(job_id: str) -> None:
                 filtered.append(fp)
                 if result["status"] in ("kept", "kept_warning"):
                     prev_lines = curr_lines
+            elif result["status"] == "skipped_duplicate":
+                pass  # 跳过
             elif result["status"] == "skipped_duplicate":
                 pass  # 跳过
 
