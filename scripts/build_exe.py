@@ -93,7 +93,59 @@ def prepare_ffmpeg():
     sys.exit(1)
 
 
+def _pre_build_checks():
+    """打包前检查：确保是 feature/ocr-complete 分支的新 UI。"""
+    errors = []
+    
+    # 检查 index.html 包含新 UI 关键词
+    index_path = PROJECT_ROOT / "web" / "static" / "index.html"
+    keywords = [
+        "第 1 步：选择视频",
+        "/api/video/draft",
+        "videoBtnGenerate",
+    ]
+    if index_path.exists():
+        content = index_path.read_text(encoding="utf-8")
+        for kw in keywords:
+            if kw not in content:
+                errors.append(f"web/static/index.html 缺少关键内容: {kw}")
+    else:
+        errors.append("web/static/index.html 不存在")
+    
+    # 检查 routes.py 包含新 API
+    routes_path = PROJECT_ROOT / "web" / "routes.py"
+    api_funcs = [
+        "create_video_draft",
+        "create_video_job",
+        "create_reference_frame",
+        "create_video_pdf",
+    ]
+    if routes_path.exists():
+        content = routes_path.read_text(encoding="utf-8")
+        for fn in api_funcs:
+            if f"async def {fn}" not in content:
+                errors.append(f"web/routes.py 缺少 API: {fn}")
+    else:
+        errors.append("web/routes.py 不存在")
+    
+    if errors:
+        print("=" * 50)
+        print("打包前检查失败：")
+        for e in errors:
+            print("  ❌ " + e)
+        print("=" * 50)
+        print("请先切换到 feature/ocr-complete 分支：")
+        print("  git checkout feature/ocr-complete")
+        print("  git reset --hard origin/feature/ocr-complete")
+        sys.exit(1)
+    else:
+        print("打包前检查通过 ✅ - 确认包含新 UI 和新 API")
+
+
 def build_exe(strip_metadata=False):
+    # 先做检查
+    _pre_build_checks()
+    
     version = get_version()
     dist_name = "ChatScreen2PDF-v" + version + "-windows"
     dist_dir = PROJECT_ROOT / "dist" / dist_name
@@ -176,6 +228,9 @@ def build_exe(strip_metadata=False):
     elif not top_res.exists():
         print("警告：resources/ 未找到，请检查 FFmpeg 准备步骤")
 
+    # 打包后检查：确认 dist 内包含新 UI
+    _post_build_checks(dist_dir)
+
     # 验证核心文件
     _verify_build(dist_dir)
 
@@ -228,6 +283,46 @@ def _verify_build(dist_dir):
             print("  - " + e)
         sys.exit(1)
     print("打包验证通过。")
+
+
+def _post_build_checks(dist_dir):
+    """打包后检查：确认 dist 内包含新 UI 和新 API。"""
+    errors = []
+
+    # 检查 dist 内的 index.html
+    dist_index = dist_dir / "_internal" / "web" / "static" / "index.html"
+    if dist_index.exists():
+        content = dist_index.read_text(encoding="utf-8")
+        checks = [
+            ("第 1 步：选择视频", "新 UI 步骤引导"),
+            ("/api/video/draft", "草稿上传 API"),
+            ("videoBtnGenerate", "开始转换按钮"),
+        ]
+        for keyword, desc in checks:
+            if keyword not in content:
+                errors.append(f"_internal/web/static/index.html 缺少 {desc}: {keyword}")
+    else:
+        errors.append("_internal/web/static/index.html 不存在")
+
+    # 检查 dist 内的 routes.py
+    dist_routes = dist_dir / "_internal" / "web" / "routes.py"
+    if dist_routes.exists():
+        content = dist_routes.read_text(encoding="utf-8")
+        for fn in ["create_video_draft", "create_reference_frame", "create_video_pdf"]:
+            if f"async def {fn}" not in content:
+                errors.append(f"_internal/web/routes.py 缺少函数: {fn}")
+    else:
+        errors.append("_internal/web/routes.py 不存在")
+
+    if errors:
+        print("=" * 50)
+        print("打包后检查失败：")
+        for e in errors:
+            print("  ❌ " + e)
+        print("=" * 50)
+        sys.exit(1)
+    else:
+        print("打包后检查通过 ✅ - dist 内确认包含新 UI 和新 API")
 
 
 def build_zip(dist_dir):

@@ -4,7 +4,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 def test_version_import():
     from __version__ import __version__
-    assert __version__ == "0.3.5"
+    assert __version__ == "1.0.0-ocr-ready"
 
 def test_version_cli():
     result = subprocess.run(
@@ -13,4 +13,4 @@ def test_version_cli():
         cwd=str(Path(__file__).resolve().parent.parent),
     )
     output = result.stdout.strip() + result.stderr.strip()
-    assert "ChatScreen2PDF 0.3.5" in output
+    assert "ChatScreen2PDF 1.0.0-ocr-ready" in output

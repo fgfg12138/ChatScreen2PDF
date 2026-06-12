@@ -21,7 +21,7 @@ from core.pdf_builder import build_grid_pdf
 logger = logging.getLogger(__name__)
 
 # FastAPI 应用
-app = FastAPI(title="ChatScreen2PDF", version="0.3.5")
+app = FastAPI(title="ChatScreen2PDF", version="1.0.0-ocr-ready")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -153,10 +153,17 @@ def _process_job(job_id: str) -> None:
 
 @router.get("/")
 async def index():
-    """返回前端页面。"""
+    """返回前端页面（带 no-cache 头，防止浏览器缓存旧版本）。"""
     from fastapi.responses import FileResponse
     static_dir = Path(__file__).resolve().parent / "static"
-    return FileResponse(str(static_dir / "index.html"))
+    return FileResponse(
+        str(static_dir / "index.html"),
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @router.post("/api/pdf/jobs")

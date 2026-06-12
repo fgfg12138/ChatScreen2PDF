@@ -36,7 +36,7 @@ def _open_browser():
 
 def main():
     print("=" * 50)
-    print("ChatScreen2PDF v0.3.5 — 本地 Web 服务")
+    print("ChatScreen2PDF v1.0.0-ocr-ready — 本地 Web 服务")
     print("所有处理仅在本地完成，不上传任何数据")
     print("=" * 50)
     print()

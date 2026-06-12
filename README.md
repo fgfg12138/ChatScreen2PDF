@@ -1,4 +1,4 @@
-# ChatScreen2PDF
+# ChatScreen2PDF v1.0.0-ocr-ready
 
 聊天记录证据整理工具 — 完全本地运行，不上传任何数据。
 
@@ -135,6 +135,24 @@ OCR 结果仅用于连续性判断，不影响 PDF 正文内容。即使 OCR 识
 
 **Q: 服务启动后浏览器没自动打开？**
 A: 手动访问 http://127.0.0.1:18766/
+
+**Q: 如何确认当前运行的是新 WebUI？**
+A: 在浏览器中按 Ctrl+U 查看网页源码，搜索「第 1 步：选择视频」。如果能搜到，说明是新版。搜不到则是旧版，请确认：
+
+```bash
+# 1. 确认分支
+git branch --show-current
+# 应输出: feature/ocr-complete
+
+# 2. 确认文件内容
+findstr /C:"第 1 步：选择视频" web\static\index.html
+findstr /C:"/api/video/draft" web\static\index.html
+findstr /C:"create_video_draft" web\routes.py
+
+# 3. 如果以上都不对，切换到正确分支
+git checkout feature/ocr-complete
+git reset --hard origin/feature/ocr-complete
+```
 
 **Q: FFmpeg not found？**
 A: 下载 ffmpeg 并加入 PATH，或将 ffmpeg.exe 放入 `resources/ffmpeg/`
