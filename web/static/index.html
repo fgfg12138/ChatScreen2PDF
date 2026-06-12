@@ -235,9 +235,9 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
         <span style="color:#888;font-size:11px">推荐 0.5</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
-        <span style="color:#ddd;font-size:12px;cursor:help" title="用于过滤模糊截图。数值越高过滤越严格；数值越低保留越多。推荐 30。&#10;&#10;推荐值：&#10;0：不过滤&#10;20：宽松&#10;30：推荐默认&#10;50：较严格&#10;80+：很严格可能误删">模糊阈值 ℹ</span>
-        <input type="number" id="blurThreshold" value="30" min="0" max="200" step="1" style="width:50px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px" title="过滤模糊截图的严格程度。推荐 30。">
-        <span style="color:#888;font-size:11px">推荐 30</span>
+        <span style="color:#ddd;font-size:12px;cursor:help" title="用于过滤模糊截图。数值越高过滤越严格；数值越低保留越多。推荐 10（调大=过滤更严格）。&#10;&#10;推荐值：&#10;0：不过滤&#10;20：宽松&#10;30：推荐默认&#10;50：较严格&#10;80+：很严格可能误删">模糊阈值 ℹ</span>
+        <input type="number" id="blurThreshold" value="10" min="0" max="200" step="1" style="width:50px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px" title="过滤模糊截图的严格程度。推荐 10（调大=过滤更严格）。">
+        <span style="color:#888;font-size:11px">推荐 10（调大=过滤更严格）</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
         <span style="color:#ddd;font-size:12px;cursor:help" title="判断截图是否重复。数值越高去重越激进，保留图片越少。推荐 10。&#10;&#10;推荐值：&#10;1-5：保守，重复图可能较多&#10;10：推荐默认&#10;15-20：去重更强&#10;30+：很激进可能误删">去重阈值 ℹ</span>
@@ -284,6 +284,7 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
       <span id="ocrStatus" style="color:#888"></span>
     </div>
     <div style="font-size:11px;color:#666;margin-top:4px">建议只框选聊天内容区域，不要包含顶部标题栏、输入框、状态栏和大面积空白。</div>
+    <div id="ocrInstallTip" style="display:none;font-size:11px;color:#ffa500;margin-top:4px;background:#2d2d20;padding:8px;border-radius:4px;border-left:3px solid #ffa500">📦 OCR 未安装，使用图像对比筛选。<br>安装后可用 AI 文本识别智能去重：在终端运行 <code style="background:#111;color:#ffa500;padding:2px 6px">pip install paddleocr paddlepaddle</code>（需 ~2GB 空间）</div>
   </div>
 
   <!-- 缩略图 -->
@@ -987,7 +988,7 @@ UF.addEventListener('click',function(){OR=null;RC.textContent='使用全图';ali
 // 渲染帧
 function rv(fn,dt){
   FN=fn;TG.innerHTML='';PH.style.display='none';
-  if(dt&&dt.length>0){var a=dt[0].ocr_available;OS.textContent=a?'OCR 已启用，使用文本连续性判断':'OCR 未启用，使用图像去重';OS.style.color=a?'#88ff88':'#888';}
+  if(dt&&dt.length>0){var a=dt[0].ocr_available;OS.textContent=a?'OCR 已启用，使用文本连续性判断':'OCR 未安装，使用图像去重';OS.style.color=a?'#88ff88':'#ffa500';var tip=safeGet('ocrInstallTip');if(tip)tip.style.display=a?'none':'block';}
   TS.textContent='共保留 '+fn.length+' 帧';
   var sz=parseInt(TZ.value);
   fn.forEach(function(n,i){
@@ -1069,7 +1070,7 @@ function genPdf(){
 }
 
 // 初始化
-BG.addEventListener('click',runJob);
+BG.onclick=runJob;
 TZ.addEventListener('change',function(){if(FN.length>0){rv(FN,[]);}});
 })();
 
