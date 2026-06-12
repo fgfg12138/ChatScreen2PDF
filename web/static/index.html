@@ -858,7 +858,7 @@ function sp(c,t){if(t>0){PW.style.display='block';PF.style.width=Math.round(c/t*
 
 // 重置所有状态
 function resetAll(){
-  if(PO)clearInterval(PO);PO=null;J=null;dj=null;OR=null;RW=0;RH=0;FN=[];DD=false;ST8='idle';
+  cl();if(PO)clearInterval(PO);PO=null;J=null;dj=null;OR=null;RW=0;RH=0;FN=[];DD=false;ST8='idle';
   TG.innerHTML='';PH.style.display='';PH.textContent='请选择 MP4 视频';
   OC.style.display='none';document.getElementById('refFrameContainer').style.display='none';
   RC.textContent='未选择';OS.textContent='';hd();he();sp(0,0);PW.style.display='none';
@@ -948,10 +948,11 @@ function rv(fn,dt){
 function runJob(){
   if(ST8==='processing_video'||!sf)return;
   // 检查是否框选了区域
-  if(!DD&&ST8!=='draft_ready'&&ST8!=='idle'){
+  if(!DD){
     if(!confirm('未选择聊天区域，将使用全图分析。建议只框选聊天内容区域，是否继续？')){
       stepHighlight(2);return;
     }
+    DD=true;
   }
   ST8='processing_video';JR=true;BG.disabled=true;BG.textContent='处理中...';he();hd();cl();J=null;stepHighlight(5);
   var fd=new FormData();fd.append('file',sf);
@@ -980,7 +981,7 @@ function pv(id){
 }
 
 function genPdf(){
-  if(JR||!J||ST8!=='review_ready')return;
+  if(JR||!J||(ST8!=='review_ready'&&ST8!=='pdf_ready'))return;
   ST8='exporting_pdf';JR=true;BG.disabled=true;BG.textContent='正在生成 PDF...';he();hd();
   sp(0,1);PT.textContent='0%';PF.style.width='0%';
   var pi=setInterval(function(){PF.style.width=Math.min(parseInt(PF.style.width)+5,90)+'%';PT.textContent=PF.style.width;},1000);
@@ -996,7 +997,7 @@ function genPdf(){
   .then(function(d){
     if(d.status==='pdf_done'){
       clearInterval(pi);PF.style.width='100%';PT.textContent='100%';
-      ST8='pdf_ready';al('done','PDF 生成成功');ST.textContent='PDF 生成成功';
+      ST8='pdf_ready';JR=false;al('done','PDF 生成成功');ST.textContent='PDF 生成成功';
       DA.classList.add('show');DL.href='/api/video/jobs/'+J+'/download';
       BG.disabled=false;BG.textContent='重新生成 PDF';BG.onclick=genPdf;
     }else{se('PDF 生成失败');ST8='review_ready';JR=false;BG.disabled=false;}
