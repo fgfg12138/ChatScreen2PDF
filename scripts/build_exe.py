@@ -64,6 +64,12 @@ def write_app_config(edition: str) -> None:
     )
 
 
+def clean_pycache(root: Path) -> None:
+    """Remove __pycache__ dirs so they are not bundled into releases."""
+    for cache in root.rglob("__pycache__"):
+        shutil.rmtree(cache, ignore_errors=True)
+
+
 def pre_build_checks() -> None:
     index_path = PROJECT_ROOT / "web" / "static" / "index.html"
     routes_path = PROJECT_ROOT / "web" / "routes.py"
@@ -220,6 +226,7 @@ def verify_build(dist_dir: Path, edition: str) -> None:
 
 
 def build_exe(edition: str, strip_metadata: bool = False) -> Path:
+    clean_pycache(PROJECT_ROOT)
     pre_build_checks()
     write_app_config(edition)
 
