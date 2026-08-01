@@ -472,3 +472,138 @@ async def test_invalid_layout(test_image_png):
             data={"layout": "5x5"},
         )
     assert resp.status_code == 400
+
+
+# ── 任务历史：持久化与恢复 ─────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_list_jobs_endpoint_returns_downloadable_summary(tmp_path):
+    """任务历史接口应返回已生成文件的可下载摘要。"""
+    temp_dir = tmp_path / "jobdir"
+    temp_dir.mkdir()
+    pdf = temp_dir / "out.pdf"
+    pdf.write_bytes(b"%PDF-1.4 test")
+    word = temp_dir / "out.docx"
+    word.write_bytes(b"word")
+    _jobs["list-a"] = {
+        "job_id": "list-a",
+        "status": "pdf_done",
+        "type": "video",
+        "created_at": "2026-07-01 10:00:00",
+        "temp_dir": str(temp_dir),
+        "result_filename": pdf.name,
+        "word_result_filename": word.name,
+        "src_file": str(tmp_path / "户外视频.mp4"),
+        "total": 3,
+        "current": 3,
+        "error": "",
+    }
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/jobs")
+    assert resp.status_code == 200
+    jobs = resp.json()["jobs"]
+    summary = next(j for j in jobs if j["job_id"] == "list-a")
+    assert summary["type"] == "video"
+    assert summary["name"] == "户外视频.mp4"
+    assert summary["has_pdf"] is True
+    assert summary["has_word"] is True
+    assert summary["has_images_zip"] is False
+
+
+@pytest.mark.asyncio
+async def test_job_persisted_and_restored_after_restart(tmp_path, monkeypatch):
+    """任务应落盘，且清空内存后可从磁盘恢复。"""
+    import json as _json
+    import web.routes as routes
+    jobs_dir = tmp_path / "jobs"
+    monkeypatch.setattr(routes, "JOBS_DIR", jobs_dir)
+    monkeypatch.setattr(routes, "_persist_enabled", True)
+
+    temp_dir = tmp_path / "jobdir"
+    temp_dir.mkdir()
+    pdf = temp_dir / "result.pdf"
+    pdf.write_bytes(b"%PDF-1.4 test")
+    job = {
+        "job_id": "persist-1",
+        "status": "done",
+        "type": "image",
+        "total": 1,
+        "current": 1,
+        "logs": [],
+        "result_filename": pdf.name,
+        "error": "",
+        "files": [("a.png", str(temp_dir / "a.png"))],
+        "temp_dir": str(temp_dir),
+    }
+    routes._register_job("persist-1", job)
+    assert (jobs_dir / "persist-1.json").exists()
+
+    # 模拟程序重启：清空内存任务表后重新加载
+    routes._jobs.clear()
+    routes._load_jobs()
+    assert "persist-1" in routes._jobs
+    restored = routes._jobs["persist-1"]
+    assert restored["status"] == "done"
+    assert restored["created_at"]
+    assert restored["files"][0] == ["a.png", str(temp_dir / "a.png")]
+
+
+@pytest.mark.asyncio
+async def test_interrupted_job_recovered_when_pdf_exists(tmp_path, monkeypatch):
+    """处理中的任务重启后若 PDF 已生成，应恢复为可下载状态。"""
+    import json as _json
+    import web.routes as routes
+    jobs_dir = tmp_path / "jobs"
+    jobs_dir.mkdir()
+    monkeypatch.setattr(routes, "JOBS_DIR", jobs_dir)
+
+    temp_dir = tmp_path / "jobdir"
+    temp_dir.mkdir()
+    pdf = temp_dir / "out.pdf"
+    pdf.write_bytes(b"%PDF-1.4 x")
+    job = {
+        "job_id": "int-1",
+        "status": "processing",
+        "type": "video",
+        "total": 5,
+        "current": 3,
+        "logs": [],
+        "result_filename": pdf.name,
+        "error": "",
+        "temp_dir": str(temp_dir),
+        "src_file": str(tmp_path / "v.mp4"),
+        "frames": [],
+        "frame_filenames": [],
+    }
+    (jobs_dir / "int-1.json").write_text(_json.dumps(job, ensure_ascii=False), encoding="utf-8")
+    routes._load_jobs()
+    assert routes._jobs["int-1"]["status"] == "pdf_done"
+
+
+@pytest.mark.asyncio
+async def test_interrupted_job_without_result_marked_interrupted(tmp_path, monkeypatch):
+    """处理中的任务重启后没有结果文件，应标记为已中断。"""
+    import json as _json
+    import web.routes as routes
+    jobs_dir = tmp_path / "jobs"
+    jobs_dir.mkdir()
+    monkeypatch.setattr(routes, "JOBS_DIR", jobs_dir)
+
+    temp_dir = tmp_path / "jobdir"
+    temp_dir.mkdir()
+    job = {
+        "job_id": "int-2",
+        "status": "processing",
+        "type": "video",
+        "total": 5,
+        "current": 3,
+        "logs": [],
+        "result_filename": "",
+        "error": "",
+        "temp_dir": str(temp_dir),
+        "src_file": str(tmp_path / "v.mp4"),
+    }
+    (jobs_dir / "int-2.json").write_text(_json.dumps(job, ensure_ascii=False), encoding="utf-8")
+    routes._load_jobs()
+    assert routes._jobs["int-2"]["status"] == "interrupted"

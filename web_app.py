@@ -58,6 +58,10 @@ def main():
         print(f"如果服务已经在运行，请访问 http://{HOST}:{PORT}/")
         sys.exit(1)
 
+    # 恢复历史任务：浏览器关闭或程序重启后仍可下载已生成的文件
+    from web.routes import init_job_persistence
+    init_job_persistence()
+
     url = f"http://{HOST}:{PORT}/"
     print(f"启动服务: {url}")
     print("按 Ctrl+C 停止服务")

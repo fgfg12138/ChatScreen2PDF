@@ -2,6 +2,7 @@
 web/routes.py — FastAPI 路由：图片上传、PDF 生成、状态查询、下载。
 """
 
+import json
 import logging
 import os
 import shutil
@@ -105,6 +106,117 @@ async def favicon():
 # 临时文件根目录
 TEMP_ROOT = Path(tempfile.gettempdir()) / "chatScreen2pdf_web"
 TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+# ── 任务持久化（浏览器关闭/程序重启后可恢复下载） ──────────────
+
+JOBS_DIR = TEMP_ROOT / "jobs"
+_persist_enabled = False
+_jobs_lock = threading.Lock()
+JOB_RETENTION_SECONDS = 7 * 24 * 3600
+
+
+def _register_job(job_id: str, job: dict) -> None:
+    """写入内存任务表并持久化快照。"""
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    job.setdefault("created_at", now)
+    job["updated_at"] = now
+    _jobs[job_id] = job
+    _save_job(job_id)
+
+
+def _json_default(obj):
+    """JSON 序列化兜底：Path 对象转为字符串。"""
+    if isinstance(obj, Path):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def _save_job(job_id: str) -> None:
+    """将单个任务快照写入磁盘（原子替换）。"""
+    if not _persist_enabled:
+        return
+    job = _jobs.get(job_id)
+    if not job:
+        return
+    try:
+        job["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        JOBS_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_path = JOBS_DIR / f"{job_id}.json.tmp"
+        tmp_path.write_text(
+            json.dumps(job, ensure_ascii=False, indent=1, default=_json_default),
+            encoding="utf-8",
+        )
+        tmp_path.replace(JOBS_DIR / f"{job_id}.json")
+    except Exception:
+        logger.exception("Failed to persist job %s", job_id)
+
+
+def _save_all_jobs() -> None:
+    """快照全部任务（后台循环调用）。"""
+    if not _persist_enabled:
+        return
+    with _jobs_lock:
+        items = list(_jobs.items())
+    for job_id, _ in items:
+        _save_job(job_id)
+
+
+def _load_jobs() -> None:
+    """启动时恢复历史任务；处理中断的任务按结果文件决定恢复状态。"""
+    if not JOBS_DIR.exists():
+        return
+    now_ts = time.time()
+    for jf in sorted(JOBS_DIR.glob("*.json")):
+        try:
+            job = json.loads(jf.read_text(encoding="utf-8"))
+        except Exception:
+            jf.unlink(missing_ok=True)
+            continue
+        job_id = job.get("job_id")
+        if not job_id:
+            continue
+        temp_dir = Path(job.get("temp_dir", "")) if job.get("temp_dir") else None
+        # 过期任务清理（仅清理程序自己的临时目录）
+        if temp_dir and temp_dir.is_relative_to(TEMP_ROOT):
+            try:
+                if now_ts - temp_dir.stat().st_mtime > JOB_RETENTION_SECONDS:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    jf.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass
+        # 中断恢复：进程重启后不再有后台线程，处理中的任务按已有结果恢复
+        if job.get("status") in ("pending", "processing", "pdf_generating"):
+            result_name = job.get("result_filename", "")
+            result_path = (temp_dir / result_name) if (temp_dir and result_name) else None
+            if result_path and result_path.exists():
+                job["status"] = "pdf_done"
+                job.setdefault("logs", []).append(("info", "检测到已生成的 PDF，已恢复为可下载状态"))
+            else:
+                job["status"] = "interrupted"
+                job["error"] = "程序中断，任务未完成"
+                job.setdefault("logs", []).append(("error", "程序中断，任务未完成"))
+        _jobs[job_id] = job
+
+
+def _persist_loop() -> None:
+    """后台周期持久化，兜底保存中间状态。"""
+    while True:
+        time.sleep(5)
+        try:
+            _save_all_jobs()
+        except Exception:
+            logger.exception("Job persist loop error")
+
+
+def init_job_persistence() -> None:
+    """加载历史任务并启动持久化循环（由 web_app 启动时调用）。"""
+    global _persist_enabled
+    _persist_enabled = True
+    JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    _load_jobs()
+    threading.Thread(target=_persist_loop, daemon=True).start()
 
 
 # ── 任务状态模型 ────────────────────────────────────────────
@@ -261,8 +373,8 @@ def _process_job(job_id: str) -> None:
         job["logs"].append(("error", f"生成失败: {e}"))
         logger.error("Job %s failed: %s", job_id, e)
     finally:
-        # 保留临时图片，后续可继续导出 Word。
-        pass
+        # 保留临时图片，后续可继续导出 Word；同时持久化任务状态。
+        _save_job(job_id)
 
 
 def _download_word(job_id: str) -> FileResponse:
@@ -279,6 +391,56 @@ def _download_word(job_id: str) -> FileResponse:
         raise HTTPException(status_code=404, detail=f"Word 文件不存在: {result_name}")
 
     return _download_docx_response(docx_path, result_name)
+
+
+# ── 任务历史 ────────────────────────────────────────────────
+
+def _job_display_name(job: dict) -> str:
+    """返回任务显示名（首个文件或视频文件名）。"""
+    src_file = job.get("src_file", "")
+    if src_file:
+        return Path(src_file).name
+    files = job.get("files") or []
+    if files:
+        first = files[0]
+        if isinstance(first, (list, tuple)) and first:
+            return Path(str(first[0])).name
+        return Path(str(first)).name
+    return str(job.get("job_id", ""))
+
+
+def _job_summary(job: dict) -> dict:
+    """生成任务历史列表的摘要信息。"""
+    temp_dir = Path(job["temp_dir"]) if job.get("temp_dir") else None
+
+    def _file_exists(name: str) -> bool:
+        return bool(name) and temp_dir is not None and (temp_dir / name).exists()
+
+    return {
+        "job_id": job.get("job_id", ""),
+        "type": job.get("type", "image"),
+        "status": job.get("status", ""),
+        "name": _job_display_name(job),
+        "created_at": job.get("created_at", ""),
+        "updated_at": job.get("updated_at", ""),
+        "total": job.get("total", 0),
+        "current": job.get("current", 0),
+        "result_filename": job.get("result_filename", ""),
+        "word_result_filename": job.get("word_result_filename", ""),
+        "images_zip_filename": job.get("images_zip_filename", ""),
+        "error": job.get("error", ""),
+        "has_pdf": _file_exists(job.get("result_filename", "")),
+        "has_word": _file_exists(job.get("word_result_filename", "")),
+        "has_images_zip": _file_exists(job.get("images_zip_filename", "")),
+    }
+
+
+@router.get("/api/jobs")
+async def list_jobs():
+    """返回全部历史任务（页面刷新/重开后用于恢复下载列表）。"""
+    jobs = [_job_summary(job) for job in _jobs.values()]
+    jobs.sort(key=lambda j: j.get("created_at") or "", reverse=True)
+    return {"jobs": jobs}
 
 
 # ── 路由 ────────────────────────────────────────────────────
@@ -348,6 +510,7 @@ async def create_job(
     job = {
         "job_id": job_id,
         "status": "pending",
+        "type": "image",
         "total": len(saved_files),
         "current": 0,
         "logs": [("info", f"已上传 {len(saved_files)} 张图片")],
@@ -364,7 +527,7 @@ async def create_job(
         "watermark": pdf_watermark,
         "enable_cover": False,
     }
-    _jobs[job_id] = job
+    _register_job(job_id, job)
 
     # 后台启动处理
     import threading
@@ -449,10 +612,12 @@ async def create_image_word(
         )
         job["word_result_filename"] = result.name
         job["logs"].append(("done", f"Word 生成成功: {result.name}"))
+        _save_job(job_id)
         return {"job_id": job_id, "status": "word_done", "result_filename": result.name}
     except Exception as e:
         job["error"] = str(e)
         job["logs"].append(("error", f"Word 生成失败: {e}"))
+        _save_job(job_id)
         raise HTTPException(status_code=500, detail=f"Word 生成失败: {e}")
 
 
@@ -509,7 +674,7 @@ async def create_long_job(
         "slices": [],
         "slice_filenames": [],
     }
-    _jobs[job_id] = job
+    _register_job(job_id, job)
 
     # 后台切片
     import threading
@@ -540,12 +705,14 @@ def _process_long_job(job_id: str) -> None:
         job["current"] = len(slices)
         job["status"] = "done"
         job["logs"].append(("done", f"切片完成: {len(slices)} 片"))
+        _save_job(job_id)
 
     except Exception as e:
         job["status"] = "error"
         job["error"] = str(e)
         job["logs"].append(("error", f"切片失败: {e}"))
         logger.error("Long job %s failed: %s", job_id, e)
+        _save_job(job_id)
 
 
 @router.get("/api/long/jobs/{job_id}")
@@ -629,10 +796,12 @@ async def create_long_pdf(
         job["status"] = "pdf_done"
         job["result_filename"] = result.name
         job["logs"].append(("done", f"PDF 生成成功: {result.name}"))
+        _save_job(job_id)
     except Exception as e:
         job["status"] = "error"
         job["error"] = str(e)
         job["logs"].append(("error", f"PDF 生成失败: {e}"))
+        _save_job(job_id)
 
     return {"job_id": job_id, "status": job["status"]}
 
@@ -677,10 +846,12 @@ async def create_long_word(
         )
         job["word_result_filename"] = result.name
         job["logs"].append(("done", f"Word 生成成功: {result.name}"))
+        _save_job(job_id)
         return {"job_id": job_id, "status": "word_done", "result_filename": result.name}
     except Exception as e:
         job["error"] = str(e)
         job["logs"].append(("error", f"Word 生成失败: {e}"))
+        _save_job(job_id)
         raise HTTPException(status_code=500, detail=f"Word 生成失败: {e}")
 
 
@@ -712,7 +883,7 @@ async def create_video_draft(file: UploadFile = File(...)):
         "src_file": str(src_path), "temp_dir": str(temp_dir),
         "frames": [], "frame_filenames": [], "frame_details": [],
     }
-    _jobs[job_id] = job
+    _register_job(job_id, job)
     return {"job_id": job_id, "filename": file.filename}
 
 
@@ -780,7 +951,7 @@ async def create_video_job(
         "frame_details": [],  # 每帧的 OCR 分类结果
         "ocr_available": False,
     }
-    _jobs[job_id] = job
+    _register_job(job_id, job)
 
     import threading
     t = threading.Thread(target=_process_video_job, args=(job_id,), daemon=True)
@@ -974,12 +1145,14 @@ def _process_video_job(job_id: str) -> None:
         job["status"] = "done"
 
         job["logs"].append(("done", f"视频处理完成: {len(frames)}→{len(filtered)} 帧"))
+        _save_job(job_id)
 
     except Exception as e:
         job["status"] = "error"
         job["error"] = str(e)
         job["logs"].append(("error", f"处理失败: {e}"))
         logger.error("Video job %s failed: %s", job_id, e)
+        _save_job(job_id)
 
 
 @router.get("/api/video/jobs/{job_id}")
@@ -1122,6 +1295,7 @@ async def update_video_frames(job_id: str, body: dict):
     job["frame_filenames"] = new_filenames
     job["total"] = len(new_frames)
     job["logs"].append(("info", f"已更新帧顺序: {len(new_filenames)} 帧"))
+    _save_job(job_id)
     return {"total": len(new_filenames)}
 
 
@@ -1144,6 +1318,7 @@ async def update_long_slices(job_id: str, body: dict):
     job["slice_filenames"] = new_filenames
     job["total"] = len(new_filenames)
     job["logs"].append(("info", f"已更新切片顺序: {len(new_filenames)} 片"))
+    _save_job(job_id)
     return {"total": len(new_filenames)}
 
 
@@ -1209,10 +1384,12 @@ async def create_video_pdf(
         job["status"] = "pdf_done"
         job["result_filename"] = result.name
         job["logs"].append(("done", f"PDF 生成成功: {result.name}"))
+        _save_job(job_id)
     except Exception as e:
         job["status"] = "error"
         job["error"] = str(e)
         job["logs"].append(("error", f"PDF 生成失败: {e}"))
+        _save_job(job_id)
 
     return {"job_id": job_id, "status": job["status"]}
 
@@ -1300,10 +1477,12 @@ async def create_video_word(
         )
         job["word_result_filename"] = result.name
         job["logs"].append(("done", f"Word 生成成功: {result.name}"))
+        _save_job(job_id)
         return {"job_id": job_id, "status": "word_done", "result_filename": result.name}
     except Exception as e:
         job["error"] = str(e)
         job["logs"].append(("error", f"Word 生成失败: {e}"))
+        _save_job(job_id)
         raise HTTPException(status_code=500, detail=f"Word 生成失败: {e}")
 
 
@@ -1346,6 +1525,7 @@ async def create_video_images_zip(job_id: str):
 
     job["images_zip_filename"] = zip_name
     job["logs"].append(("done", f"图片 ZIP 生成成功: {zip_name}"))
+    _save_job(job_id)
     return {"job_id": job_id, "status": "images_zip_done", "result_filename": zip_name}
 
 

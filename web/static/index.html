@@ -59,6 +59,24 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
 .download-area.show { display: flex; align-items: center; gap: 12px; }
 .download-link { color: #4CAF50; font-size: 15px; font-weight: bold; text-decoration: none; padding: 8px 20px; border: 2px solid #4CAF50; border-radius: 4px; }
 .download-link:hover { background: #4CAF50; color: #fff; }
+/* 任务历史 */
+.history-panel { margin: 0 0 16px; background: #16213e; border: 1px solid #333; border-radius: 8px; padding: 10px 14px; }
+.history-panel summary { cursor: pointer; font-size: 14px; color: #ddd; user-select: none; }
+.history-count { color: #4CAF50; font-size: 12px; margin-left: 4px; }
+.history-empty { color: #777; font-size: 12px; padding: 8px 0 2px; }
+.history-list { margin-top: 8px; max-height: 260px; overflow-y: auto; }
+.hist-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 2px; border-top: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap; }
+.hist-left { min-width: 0; }
+.hist-title { font-size: 13px; color: #e0e0e0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-meta { font-size: 11px; color: #888; margin-top: 2px; }
+.hist-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hist-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+.hist-ok { background: #1b5e20; color: #a5d6a7; }
+.hist-run { background: #4e342e; color: #ffcc80; }
+.hist-bad { background: #7f1d1d; color: #ffcdd2; }
+.hist-link { color: #4CAF50; font-size: 12px; text-decoration: none; border: 1px solid #4CAF50; border-radius: 4px; padding: 3px 10px; }
+.hist-link:hover { background: #4CAF50; color: #fff; }
+.hist-err { color: #ff6666; font-size: 11px; }
 
 /* 错误提示 */
 .error-msg { display: none; background: #5c1a1a; color: #ff8888; padding: 12px; border-radius: 4px; margin-bottom: 12px; }
@@ -83,6 +101,13 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
     <button id="tabVideo">视频转 PDF/Word</button>
     <button id="tabLong">长截图转 PDF/Word</button>
   </div>
+
+  <!-- 任务历史：刷新/重开浏览器后可恢复下载 -->
+  <details class="history-panel" id="historyPanel">
+    <summary>📋 任务历史 <span class="history-count" id="historyCount"></span></summary>
+    <div class="history-empty" id="historyEmpty">暂无历史任务。任务在后台继续运行，关闭浏览器后重新打开页面仍可下载已生成的文件。</div>
+    <div class="history-list" id="historyList"></div>
+  </details>
 
   <!-- 截图生成 PDF 区域 -->
   <div id="screenshotSection">
@@ -1625,6 +1650,99 @@ BZ.onclick=genImagesZip;
 TZ.addEventListener('change',function(){if(FN.length>0){rv(FN,[]);}});
 })();
 
+// ── 任务历史：页面刷新/重开后自动恢复下载列表 ──
+(function(){
+  var TYPE_LABEL = { image: '图片', long: '长截图', video: '视频' };
+  var STATUS_LABEL = {
+    pending: '等待中', processing: '处理中', pdf_generating: '生成PDF中',
+    done: '完成', pdf_done: 'PDF已生成', word_done: 'Word已生成',
+    images_zip_done: '图片ZIP已生成', pdf_ready: 'PDF已就绪',
+    error: '失败', interrupted: '已中断', draft: '草稿'
+  };
+  var panel = safeGet('historyPanel');
+  var list = safeGet('historyList');
+  var empty = safeGet('historyEmpty');
+  var count = safeGet('historyCount');
+
+  function isActive(job) {
+    return job.status === 'pending' || job.status === 'processing' || job.status === 'pdf_generating';
+  }
+  function badgeClass(status) {
+    if (status === 'error' || status === 'interrupted') return 'hist-bad';
+    if (status === 'pending' || status === 'processing' || status === 'pdf_generating') return 'hist-run';
+    return 'hist-ok';
+  }
+  function makeLink(text, href, cls) {
+    var a = document.createElement('a');
+    a.className = cls || 'hist-link';
+    a.href = href;
+    a.target = '_blank';
+    a.textContent = text;
+    return a;
+  }
+  function render(jobs) {
+    count.textContent = jobs.length > 0 ? '（' + jobs.length + ' 个）' : '';
+    if (jobs.length === 0) {
+      empty.style.display = 'block';
+      list.innerHTML = '';
+      return;
+    }
+    empty.style.display = 'none';
+    list.innerHTML = '';
+    jobs.forEach(function (job) {
+      var row = document.createElement('div');
+      row.className = 'hist-row';
+      var left = document.createElement('div');
+      left.className = 'hist-left';
+      var title = document.createElement('div');
+      title.className = 'hist-title';
+      title.textContent = (TYPE_LABEL[job.type] || job.type) + ' · ' + (job.name || job.job_id);
+      var meta = document.createElement('div');
+      meta.className = 'hist-meta';
+      meta.textContent = (job.created_at || '') + (job.total ? ' · ' + job.total + ' 项' : '');
+      left.appendChild(title);
+      left.appendChild(meta);
+      var right = document.createElement('div');
+      right.className = 'hist-right';
+      var badge = document.createElement('span');
+      badge.className = 'hist-badge ' + badgeClass(job.status);
+      badge.textContent = STATUS_LABEL[job.status] || job.status;
+      right.appendChild(badge);
+      if (job.has_pdf) {
+        right.appendChild(makeLink('下载 PDF', '/api/pdf/jobs/' + encodeURIComponent(job.job_id) + '/download'));
+      }
+      if (job.has_word) {
+        right.appendChild(makeLink('下载 Word', '/api/pdf/jobs/' + encodeURIComponent(job.job_id) + '/word/download'));
+      }
+      if (job.has_images_zip) {
+        right.appendChild(makeLink('下载图片ZIP', '/api/video/jobs/' + encodeURIComponent(job.job_id) + '/images-zip/download'));
+      }
+      if (job.error) {
+        var err = document.createElement('span');
+        err.className = 'hist-err';
+        err.textContent = job.error;
+        right.appendChild(err);
+      }
+      row.appendChild(left);
+      row.appendChild(right);
+      list.appendChild(row);
+    });
+  }
+  function refresh() {
+    if (document.hidden) return;
+    fetch('/api/jobs', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !Array.isArray(d.jobs)) return;
+        render(d.jobs);
+      })
+      .catch(function () { /* 后端暂不可用则静默，稍后自动重试 */ });
+  }
+  if (panel) {
+    refresh();
+    setInterval(refresh, 5000);
+  }
+})();
 </script>
 </body>
 </html>
