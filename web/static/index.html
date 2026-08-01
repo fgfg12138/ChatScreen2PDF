@@ -1680,6 +1680,20 @@ TZ.addEventListener('change',function(){if(FN.length>0){rv(FN,[]);}});
     a.textContent = text;
     return a;
   }
+  function historyDownloadUrl(job, kind) {
+    var id = encodeURIComponent(job.job_id);
+    if (kind === 'pdf') return '/api/pdf/jobs/' + id + '/download';
+    if (kind === 'word') return '/api/pdf/jobs/' + id + '/word/download';
+    return '/api/video/jobs/' + id + '/images-zip/download';
+  }
+  function triggerDownload(href) {
+    var a = document.createElement('a');
+    a.href = href;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
   function genFromHistory(job, kind, btn) {
     if (!job || !job.job_id) return;
     var label = { pdf: '生成 PDF', word: '生成 Word', images: '生成图片ZIP' }[kind] || kind;
@@ -1691,8 +1705,11 @@ TZ.addEventListener('change',function(){if(FN.length>0){rv(FN,[]);}});
     fetch(url, { method: 'POST', body: new FormData() })
       .then(function (r) { if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || '生成失败'); }); return r.json(); })
       .then(function () {
-        btn.textContent = '已生成，刷新中...';
-        setTimeout(refresh, 800);
+        // 成功后：展开面板、立即刷新、并直接触发下载
+        if (panel) panel.open = true;
+        btn.textContent = '已生成，正在下载...';
+        triggerDownload(historyDownloadUrl(job, kind));
+        refresh();
       })
       .catch(function (err) {
         btn.disabled = false;
