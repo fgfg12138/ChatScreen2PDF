@@ -62,22 +62,28 @@ def test_crop_pixels_wrong_length():
 # --- FFmpeg filter building ---
 
 def test_filter_no_crop():
-    assert _build_vf_filter(1.0, None, None) == "fps=1.0"
+    f = _build_vf_filter(1.0, None, None)
+    assert "select=" in f
+    assert "eq(n\\,0)" in f
+    assert "prev_selected_t+1.0" in f
+    assert "setpts=" in f
 
 def test_filter_crop_ratio():
     f = _build_vf_filter(2.0, (0.1, 0.0, 0.9, 1.0), None)
     assert "crop=" in f
-    assert "fps=2.0" in f
-    assert f.index("crop") < f.index("fps")
+    assert "select=" in f
+    assert "eq(n\\,0)" in f
+    assert "prev_selected_t+0.5" in f
+    assert f.index("crop") < f.index("select")
 
 def test_filter_crop_pixels():
     f = _build_vf_filter(1.0, None, (0, 100, 1080, 1800))
     assert "crop=1080:1800:0:100" in f
-    assert "fps=1.0" in f
-    assert f.index("crop") < f.index("fps")
+    assert "select=" in f
+    assert "eq(n\\,0)" in f
+    assert f.index("crop") < f.index("select")
 
 def test_filter_order_crop_before_fps():
     f = _build_vf_filter(1.0, (0.0, 0.0, 1.0, 1.0), None)
-    parts = f.split(",")
-    assert parts[0].startswith("crop")
-    assert parts[1].startswith("fps")
+    assert f.startswith("crop")
+    assert f.index("crop") < f.index("select") < f.index("setpts")

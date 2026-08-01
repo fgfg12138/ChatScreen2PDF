@@ -1,1 +1,1 @@
-__version__ = "1.0.0-ocr-ready"
+__version__ = "1.0.0"

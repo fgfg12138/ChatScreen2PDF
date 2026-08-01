@@ -1,5 +1,5 @@
 """
-main.py - CLI entry for ChatScreen2PDF.
+main.py - CLI entry for Framescreen2PDF.
 """
 
 import argparse
@@ -63,9 +63,9 @@ def _parse_crop_pixels(value: str) -> tuple:
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description="ChatScreen2PDF v" + __version__,
+        description="Framescreen2PDF v" + __version__,
     )
-    p.add_argument("--version", action="version", version="ChatScreen2PDF " + __version__)
+    p.add_argument("--version", action="version", version="Framescreen2PDF " + __version__)
     p.add_argument("--input", required=True, help="Input video directory")
     p.add_argument("--output", required=True, help="Output PDF directory")
     p.add_argument("--fps", type=float, default=DEFAULT_FPS)
@@ -120,7 +120,7 @@ def main():
             sys.exit(1)
 
     logger.info("=" * 60)
-    logger.info("ChatScreen2PDF v" + __version__)
+    logger.info("Framescreen2PDF v" + __version__)
     logger.info("=" * 60)
     logger.info("Input:    %s", input_dir.resolve())
     logger.info("Output:   %s", output_dir.resolve())

@@ -6,22 +6,34 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import time
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import FastAPI, APIRouter, File, Form, UploadFile, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app_config import APP_EDITION as CONFIG_EDITION, APP_NAME, APP_VERSION
 from core.pdf_builder import build_grid_pdf
 
 logger = logging.getLogger(__name__)
 
+APP_EDITION = os.environ.get("FRAMESCREEN2PDF_EDITION", CONFIG_EDITION).strip().lower()
+if APP_EDITION not in ("full", "lite"):
+    APP_EDITION = "full"
+IS_LITE = APP_EDITION == "lite"
+ENABLE_WORD = not IS_LITE
+ENABLE_VIDEO_IMAGE_ZIP = not IS_LITE
+DEFAULT_WATERMARK = APP_NAME
+
 # FastAPI 应用
-app = FastAPI(title="ChatScreen2PDF", version="1.0.0-ocr-ready")
+app = FastAPI(title=APP_NAME, version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -42,8 +54,18 @@ async def health_check():
     """健康检查接口，前端依赖此接口确认后端可用。"""
     return {
         "success": True,
-        "version": "1.0.0-ocr-ready",
-        "message": "ChatScreen2PDF backend OK",
+        "version": APP_VERSION,
+        "app_name": APP_NAME,
+        "edition": APP_EDITION,
+        "features": {
+            "word": ENABLE_WORD,
+            "watermark_optional": not IS_LITE,
+            "watermark_forced": IS_LITE,
+            "default_watermark": DEFAULT_WATERMARK,
+            "bundled_ffmpeg": False,
+            "video_image_zip": ENABLE_VIDEO_IMAGE_ZIP,
+        },
+        "message": f"{APP_NAME} backend OK",
         "routes": {
             "pdf_jobs": True,
             "long_jobs": True,
@@ -54,7 +76,26 @@ async def health_check():
     }
 
 
+@router.post("/api/shutdown")
+async def shutdown_app():
+    """Close the local desktop service after responding to the browser."""
+    def _exit_later():
+        time.sleep(0.3)
+        os._exit(0)
+
+    threading.Thread(target=_exit_later, daemon=True).start()
+    return {"success": True, "message": "Framescreen2PDF is shutting down"}
+
+
 from fastapi.responses import Response
+
+
+@router.get("/api/ocr/status")
+async def ocr_status():
+    """Lightweight OCR component detection for the optional UI toggle."""
+    from core.ocr_service import get_ocr_status
+    return get_ocr_status()
+
 
 @router.get("/favicon.ico")
 async def favicon():
@@ -78,6 +119,11 @@ class JobStatus(BaseModel):
     error: str = ""
 
 
+class BatchDownloadRequest(BaseModel):
+    job_ids: list[str]
+    kind: str = "pdf"
+
+
 # 内存任务存储
 _jobs: dict[str, dict] = {}
 
@@ -92,6 +138,55 @@ def _cleanup_job(job_id: str) -> None:
             shutil.rmtree(job["temp_dir"], ignore_errors=True)
         except Exception:
             pass
+
+
+def _download_file_response(file_path: Path, result_name: str, media_type: str) -> FileResponse:
+    """Return a download response that supports Chinese filenames."""
+    fallback = "".join(
+        ch if ch.isascii() and ch not in {'"', "\\", "\r", "\n"} else "_"
+        for ch in result_name
+    ).strip("._ ")
+    if not fallback:
+        fallback = APP_NAME
+    encoded = quote(result_name)
+    return FileResponse(
+        str(file_path),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{encoded}'
+            )
+        },
+    )
+
+
+def _download_pdf_response(pdf_path: Path, result_name: str) -> FileResponse:
+    return _download_file_response(pdf_path, result_name, "application/pdf")
+
+
+def _download_docx_response(docx_path: Path, result_name: str) -> FileResponse:
+    return _download_file_response(
+        docx_path,
+        result_name,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
+def _download_zip_response(zip_path: Path, result_name: str) -> FileResponse:
+    return _download_file_response(zip_path, result_name, "application/zip")
+
+
+def _unique_zip_name(used: set[str], filename: str) -> str:
+    """Return a stable unique filename inside a zip archive."""
+    candidate = filename
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix
+    idx = 1
+    while candidate in used:
+        candidate = f"{stem}_{idx}{suffix}"
+        idx += 1
+    used.add(candidate)
+    return candidate
 
 
 def _process_job(job_id: str) -> None:
@@ -126,10 +221,11 @@ def _process_job(job_id: str) -> None:
         title = job.get("title", "")
         show_number = job.get("show_number", True)
         show_page_number = job.get("show_page_number", False)
+        watermark = job.get("watermark", "")
         output_path = Path(job["temp_dir"]) / f"{first_stem}.pdf"
 
         job["logs"].append(("info", f"正在生成 PDF (布局: {layout}, 缩放: {scale_mode})..."))
-        if job.get("enable_cover"):
+        if job.get("enable_cover") or watermark:
             from core.pdf_builder import build_evidence_pdf
             result = build_evidence_pdf(
                 image_paths, output_path,
@@ -139,8 +235,8 @@ def _process_job(job_id: str) -> None:
                 title=title or first_stem,
                 show_number=show_number,
                 show_page_number=show_page_number,
-                enable_cover=True,
-                watermark=job.get("watermark", ""),
+                enable_cover=bool(job.get("enable_cover")),
+                watermark=watermark,
                 source_files=image_paths,
             )
         else:
@@ -165,15 +261,24 @@ def _process_job(job_id: str) -> None:
         job["logs"].append(("error", f"生成失败: {e}"))
         logger.error("Job %s failed: %s", job_id, e)
     finally:
-        # 生成后清理临时图片，保留 PDF
-        if job.get("temp_dir"):
-            temp_dir = Path(job["temp_dir"])
-            for f in temp_dir.iterdir():
-                if f.suffix.lower() in IMAGE_EXTENSIONS:
-                    try:
-                        f.unlink()
-                    except OSError:
-                        pass
+        # 保留临时图片，后续可继续导出 Word。
+        pass
+
+
+def _download_word(job_id: str) -> FileResponse:
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    result_name = job.get("word_result_filename", "")
+    if not result_name:
+        raise HTTPException(status_code=400, detail="Word 尚未生成")
+
+    docx_path = Path(job["temp_dir"]) / result_name
+    if not docx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Word 文件不存在: {result_name}")
+
+    return _download_docx_response(docx_path, result_name)
 
 
 # ── 路由 ────────────────────────────────────────────────────
@@ -202,6 +307,8 @@ async def create_job(
     title: str = Form(""),
     show_number: str = Form("true"),
     show_page_number: str = Form("false"),
+    watermark: str = Form(""),
+    enable_watermark: str = Form("false"),
 ):
     """
     创建 PDF 生成任务。
@@ -236,6 +343,8 @@ async def create_job(
         dest.write_bytes(content)
         saved_files.append((f.filename, dest))
 
+    pdf_watermark = DEFAULT_WATERMARK if IS_LITE else (watermark.strip() if enable_watermark.lower() == "true" else "")
+
     job = {
         "job_id": job_id,
         "status": "pending",
@@ -252,7 +361,7 @@ async def create_job(
         "title": title,
         "show_number": show_number.lower() == "true",
         "show_page_number": show_page_number.lower() == "true",
-        "watermark": "",
+        "watermark": pdf_watermark,
         "enable_cover": False,
     }
     _jobs[job_id] = job
@@ -303,14 +412,56 @@ async def download_pdf(job_id: str):
     if not pdf_path.exists():
         raise HTTPException(status_code=404, detail=f"PDF 文件不存在: {result_name}")
 
-        raise HTTPException(status_code=404, detail="PDF 文件不存在")
+    return _download_pdf_response(pdf_path, result_name)
 
-    return FileResponse(
-        str(pdf_path),
-        media_type="application/pdf",
-        filename=result_name,
-        headers={"Content-Disposition": f'attachment; filename="{result_name}"'},
-    )
+
+@router.post("/api/pdf/jobs/{job_id}/word")
+async def create_image_word(
+    job_id: str,
+    title: str = Form(""),
+    show_number: str = Form("true"),
+):
+    """根据普通截图生成 Word 文档。"""
+    if not ENABLE_WORD:
+        raise HTTPException(status_code=404, detail="当前版本不包含 Word 导出功能")
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if job["status"] not in ("done", "pdf_done", "pdf_ready"):
+        raise HTTPException(status_code=400, detail="图片处理尚未完成")
+
+    image_paths = [Path(p) for _, p in job.get("files", [])]
+    image_paths = [p for p in image_paths if p.exists()]
+    if not image_paths:
+        raise HTTPException(status_code=400, detail="没有图片可处理")
+
+    first_stem = Path(job["files"][0][0]).stem
+    output_path = Path(job["temp_dir"]) / f"{first_stem}.docx"
+    doc_title = title.strip() or job.get("title") or first_stem
+
+    try:
+        from core.word_builder import build_image_docx
+        result = build_image_docx(
+            image_paths,
+            output_path,
+            title=doc_title,
+            show_number=show_number.lower() == "true",
+        )
+        job["word_result_filename"] = result.name
+        job["logs"].append(("done", f"Word 生成成功: {result.name}"))
+        return {"job_id": job_id, "status": "word_done", "result_filename": result.name}
+    except Exception as e:
+        job["error"] = str(e)
+        job["logs"].append(("error", f"Word 生成失败: {e}"))
+        raise HTTPException(status_code=500, detail=f"Word 生成失败: {e}")
+
+
+@router.get("/api/pdf/jobs/{job_id}/word/download")
+async def download_image_word(job_id: str):
+    """下载普通截图生成的 Word。"""
+    if not ENABLE_WORD:
+        raise HTTPException(status_code=404, detail="当前版本不包含 Word 导出功能")
+    return _download_word(job_id)
 
 
 # ── Phase 2: 长截图任务 ─────────────────────────────────────
@@ -450,7 +601,8 @@ async def create_long_pdf(
 
     try:
         use_cover = enable_cover.lower() == "true"
-        if use_cover:
+        pdf_watermark = DEFAULT_WATERMARK if IS_LITE else watermark.strip()
+        if use_cover or pdf_watermark:
             from core.pdf_builder import build_evidence_pdf
             result = build_evidence_pdf(
                 slices, output_path,
@@ -460,8 +612,8 @@ async def create_long_pdf(
                 title=pdf_title,
                 show_number=show_number.lower() == "true",
                 show_page_number=show_page_number.lower() == "true",
-                enable_cover=True,
-                watermark=watermark,
+                enable_cover=False,
+                watermark=pdf_watermark,
                 source_files=[Path(job.get("src_file", ""))],
             )
         else:
@@ -489,6 +641,55 @@ async def create_long_pdf(
 async def download_long_pdf(job_id: str):
     """下载长截图生成的 PDF。"""
     return await download_pdf(job_id)
+
+
+@router.post("/api/long/jobs/{job_id}/word")
+async def create_long_word(
+    job_id: str,
+    title: str = Form(""),
+    show_number: str = Form("true"),
+):
+    """根据长截图切片生成 Word 文档。"""
+    if not ENABLE_WORD:
+        raise HTTPException(status_code=404, detail="当前版本不包含 Word 导出功能")
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if job["status"] not in ("done", "pdf_done"):
+        raise HTTPException(status_code=400, detail="切片尚未完成")
+
+    slices = [Path(p) for p in job.get("slices", [])]
+    slices = [p for p in slices if p.exists()]
+    if not slices:
+        raise HTTPException(status_code=400, detail="没有切片可处理")
+
+    first_stem = Path(job["src_file"]).stem
+    output_path = Path(job["temp_dir"]) / f"{first_stem}.docx"
+    doc_title = title.strip() or first_stem
+
+    try:
+        from core.word_builder import build_image_docx
+        result = build_image_docx(
+            slices,
+            output_path,
+            title=doc_title,
+            show_number=show_number.lower() == "true",
+        )
+        job["word_result_filename"] = result.name
+        job["logs"].append(("done", f"Word 生成成功: {result.name}"))
+        return {"job_id": job_id, "status": "word_done", "result_filename": result.name}
+    except Exception as e:
+        job["error"] = str(e)
+        job["logs"].append(("error", f"Word 生成失败: {e}"))
+        raise HTTPException(status_code=500, detail=f"Word 生成失败: {e}")
+
+
+@router.get("/api/long/jobs/{job_id}/word/download")
+async def download_long_word(job_id: str):
+    """下载长截图生成的 Word。"""
+    if not ENABLE_WORD:
+        raise HTTPException(status_code=404, detail="当前版本不包含 Word 导出功能")
+    return _download_word(job_id)
 
 
 # ── Phase 4: 视频处理 ───────────────────────────────────────
@@ -519,9 +720,11 @@ async def create_video_draft(file: UploadFile = File(...)):
 async def create_video_job(
     file: UploadFile = File(...),
     interval: float = Form(0.5),
-    blur_threshold: float = Form(30.0),
+    blur_threshold: float = Form(10.0),
     dedup_threshold: int = Form(10),
+    dedup_enabled: str = Form("false"),
     global_dedup: str = Form("false"),
+    enable_ocr: str = Form("false"),
     ocr_region_x: Optional[int] = Form(None),
     ocr_region_y: Optional[int] = Form(None),
     ocr_region_w: Optional[int] = Form(None),
@@ -567,7 +770,9 @@ async def create_video_job(
         "interval": interval,
         "blur_threshold": blur_threshold,
         "dedup_threshold": dedup_threshold,
+        "dedup_enabled": dedup_enabled.lower() == "true",
         "global_dedup": global_dedup.lower() == "true",
+        "enable_ocr": enable_ocr.lower() == "true",
         "ocr_region": ocr_region,
         "exclude_words": words,
         "frames": [],
@@ -607,18 +812,33 @@ def _process_video_job(job_id: str) -> None:
             raise RuntimeError(f"FFmpeg 不可用: {e}")
 
         # 1. 抽帧
+        raw_region = job.get("ocr_region")
+        crop_pixels = None
+        if raw_region:
+            crop_pixels = (
+                int(raw_region["x"]),
+                int(raw_region["y"]),
+                int(raw_region["width"]),
+                int(raw_region["height"]),
+            )
         frames = extract_video_frames(
             src_path, frames_dir,
             interval=job["interval"],
+            crop_pixels=crop_pixels,
         )
         job["logs"].append(("info", f"抽帧完成: {len(frames)} 帧"))
 
-        # 2. 检查 OCR
-        ocr_avail = is_ocr_available()
+        # 2. OCR 仅在用户主动勾选时检测和启用
+        ocr_requested = bool(job.get("enable_ocr"))
+        ocr_avail = is_ocr_available() if ocr_requested else False
         job["ocr_available"] = ocr_avail
 
         # 校验 OCR 区域
         ocr_region = job.get("ocr_region")
+        if crop_pixels:
+            job["logs"].append(("info", f"已按框选区域裁剪输出帧: {crop_pixels}"))
+            job["ocr_region"] = None
+            ocr_region = None
         if ocr_region and frames:
             from PIL import Image
             with Image.open(frames[0]) as img:
@@ -638,8 +858,9 @@ def _process_video_job(job_id: str) -> None:
         kept = filter_frames(
             frames,
             blur_threshold=job["blur_threshold"],
-            dedup_threshold=999,  # OCR 阶段再去做重
+            dedup_threshold=job["dedup_threshold"],
             global_dedup=False,
+            dedup_enabled=False,
         )
 
         # 4. OCR 连续性判断
@@ -647,12 +868,10 @@ def _process_video_job(job_id: str) -> None:
         frame_details = []
         prev_lines = None
 
-        # 只有当 OCR 可用且用户框选了聊天区域时才启用 OCR 去重
-        ocr_active = ocr_avail and job.get("ocr_region")
+        # 只有当用户勾选、OCR 可用且有明确区域时才启用 OCR 去重
+        ocr_active = ocr_requested and ocr_avail and bool(crop_pixels or job.get("ocr_region"))
         if ocr_active:
             job["logs"].append(("info", f"正在进行 OCR 连续性分析 (区域: {job.get('ocr_region')})..."))
-        else:
-            job["logs"].append(("info", "OCR 区域未选择，使用图像去重"))
 
         filtered = []
         for idx, fp in enumerate(kept):
@@ -668,6 +887,7 @@ def _process_video_job(job_id: str) -> None:
             result["id"] = fp.name
             result["index"] = idx
             result["preview_url"] = f"/api/files/{job_id}/frames/{fp.name}"
+            result["ocr_available"] = ocr_active
             frame_details.append(result)
 
             if result["status"] in ("kept", "kept_warning", "image_dedup_only", "ocr_failed"):
@@ -679,9 +899,36 @@ def _process_video_job(job_id: str) -> None:
             elif result["status"] == "skipped_duplicate":
                 pass  # 跳过
 
+        if not ocr_active:
+            if job.get("dedup_enabled"):
+                filtered = filter_frames(
+                    kept,
+                    blur_threshold=0,
+                    dedup_threshold=job["dedup_threshold"],
+                    global_dedup=job["global_dedup"],
+                    dedup_enabled=True,
+                )
+            else:
+                filtered = kept
+            detail_reason = ""
+            frame_details = []
+            for idx, fp in enumerate(filtered):
+                frame_details.append({
+                    "id": fp.name,
+                    "index": idx,
+                    "preview_url": f"/api/files/{job_id}/frames/{fp.name}",
+                    "status": "kept",
+                    "reason": detail_reason,
+                    "warning": None,
+                    "ocr_available": ocr_active,
+                    "ocr_text_count": 0,
+                    "ocr_text_preview": [],
+                })
+
         # 5. 如果没有 OCR 或全部跳过，降级为图像去重
-        if not filtered:
-            job["logs"].append(("info", "OCR 筛选后无保留帧，降级为图像去重"))
+        if not filtered and job.get("dedup_enabled"):
+            if ocr_active:
+                job["logs"].append(("info", "OCR 筛选后无保留帧，降级为图像去重"))
             filtered = filter_frames(
                 kept,
                 blur_threshold=job["blur_threshold"],
@@ -695,9 +942,26 @@ def _process_video_job(job_id: str) -> None:
                     "index": idx,
                     "preview_url": f"/api/files/{job_id}/frames/{fp.name}",
                     "status": "image_dedup_only",
-                    "reason": "OCR 降级，使用图像去重保留",
+                    "reason": "OCR 降级，使用图像去重保留" if ocr_active else "",
                     "warning": None,
-                    "ocr_available": ocr_avail,
+                    "ocr_available": ocr_active,
+                    "ocr_text_count": 0,
+                    "ocr_text_preview": [],
+                })
+
+        if not filtered:
+            job["logs"].append(("warning", "未保留任何帧，已回退为模糊过滤后的全部帧"))
+            filtered = kept
+            frame_details = []
+            for idx, fp in enumerate(filtered):
+                frame_details.append({
+                    "id": fp.name,
+                    "index": idx,
+                    "preview_url": f"/api/files/{job_id}/frames/{fp.name}",
+                    "status": "kept",
+                    "reason": "",
+                    "warning": None,
+                    "ocr_available": ocr_active,
                     "ocr_text_count": 0,
                     "ocr_text_preview": [],
                 })
@@ -709,9 +973,7 @@ def _process_video_job(job_id: str) -> None:
         job["current"] = len(filtered)
         job["status"] = "done"
 
-        ocr_status = "已启用" if ocr_avail else "未安装"
-        job["logs"].append(("done",
-            f"视频处理完成: {len(frames)}→{len(filtered)} 帧 (OCR: {ocr_status})"))
+        job["logs"].append(("done", f"视频处理完成: {len(frames)}→{len(filtered)} 帧"))
 
     except Exception as e:
         job["status"] = "error"
@@ -919,7 +1181,8 @@ async def create_video_pdf(
 
     try:
         use_cover = enable_cover.lower() == "true"
-        if use_cover:
+        pdf_watermark = DEFAULT_WATERMARK if IS_LITE else watermark.strip()
+        if use_cover or pdf_watermark:
             from core.pdf_builder import build_evidence_pdf
             result = build_evidence_pdf(
                 frames, output_path,
@@ -929,8 +1192,8 @@ async def create_video_pdf(
                 title=pdf_title,
                 show_number=show_number.lower() == "true",
                 show_page_number=show_page_number.lower() == "true",
-                enable_cover=True,
-                watermark=watermark,
+                enable_cover=False,
+                watermark=pdf_watermark,
                 source_files=[Path(job.get("src_file", ""))],
             )
         else:
@@ -960,5 +1223,159 @@ async def download_video_pdf(job_id: str):
     return await download_pdf(job_id)
 
 
+@router.post("/api/video/batch/download")
+async def download_video_batch(body: BatchDownloadRequest):
+    """将多个已生成的视频结果打包下载。默认打包 PDF。"""
+    kind = (body.kind or "pdf").lower().strip()
+    if kind not in ("pdf", "word", "images"):
+        raise HTTPException(status_code=400, detail="批量下载类型无效")
+    if kind == "word" and not ENABLE_WORD:
+        raise HTTPException(status_code=404, detail="当前版本不包含 Word 导出功能")
+    if kind == "images" and not ENABLE_VIDEO_IMAGE_ZIP:
+        raise HTTPException(status_code=404, detail="当前版本不包含视频转图片功能")
+
+    files: list[tuple[Path, str]] = []
+    for job_id in body.job_ids:
+        job = _jobs.get(job_id)
+        if not job:
+            continue
+        temp_dir = Path(job.get("temp_dir", ""))
+        if kind == "pdf":
+            result_name = job.get("result_filename", "")
+        elif kind == "word":
+            result_name = job.get("word_result_filename", "")
+        else:
+            result_name = job.get("images_zip_filename", "")
+        if not result_name:
+            continue
+        fp = temp_dir / result_name
+        if fp.exists():
+            files.append((fp, result_name))
+
+    if not files:
+        raise HTTPException(status_code=400, detail="没有可打包的文件")
+
+    suffix = {"pdf": "PDF", "word": "Word", "images": "图片"}[kind]
+    zip_name = f"批量视频转换_{suffix}.zip"
+    zip_path = TEMP_ROOT / f"framescreen2pdf_batch_{uuid.uuid4().hex}.zip"
+    used: set[str] = set()
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for fp, result_name in files:
+            zf.write(fp, _unique_zip_name(used, result_name))
+
+    return _download_zip_response(zip_path, zip_name)
+
+
+@router.post("/api/video/jobs/{job_id}/word")
+async def create_video_word(
+    job_id: str,
+    title: str = Form(""),
+    show_number: str = Form("true"),
+):
+    """根据视频帧生成 Word 文档。"""
+    if not ENABLE_WORD:
+        raise HTTPException(status_code=404, detail="当前版本不包含 Word 导出功能")
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if job["status"] not in ("done", "pdf_done"):
+        raise HTTPException(status_code=400, detail="视频处理尚未完成")
+
+    frames = [Path(p) for p in job.get("frames", [])]
+    frames = [p for p in frames if p.exists()]
+    if not frames:
+        raise HTTPException(status_code=400, detail="没有帧可处理")
+
+    first_stem = Path(job["src_file"]).stem
+    output_path = Path(job["temp_dir"]) / f"{first_stem}.docx"
+    doc_title = title.strip() or first_stem
+
+    try:
+        from core.word_builder import build_image_docx
+        result = build_image_docx(
+            frames,
+            output_path,
+            title=doc_title,
+            show_number=show_number.lower() == "true",
+        )
+        job["word_result_filename"] = result.name
+        job["logs"].append(("done", f"Word 生成成功: {result.name}"))
+        return {"job_id": job_id, "status": "word_done", "result_filename": result.name}
+    except Exception as e:
+        job["error"] = str(e)
+        job["logs"].append(("error", f"Word 生成失败: {e}"))
+        raise HTTPException(status_code=500, detail=f"Word 生成失败: {e}")
+
+
+@router.get("/api/video/jobs/{job_id}/word/download")
+async def download_video_word(job_id: str):
+    """下载视频生成的 Word。"""
+    if not ENABLE_WORD:
+        raise HTTPException(status_code=404, detail="当前版本不包含 Word 导出功能")
+    return _download_word(job_id)
+
+
+@router.post("/api/video/jobs/{job_id}/images-zip")
+async def create_video_images_zip(job_id: str):
+    """将当前保留并排序后的帧打包为图片 ZIP。Full 功能。"""
+    if not ENABLE_VIDEO_IMAGE_ZIP:
+        raise HTTPException(status_code=404, detail="当前版本不包含视频转图片功能")
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if job["status"] not in ("done", "pdf_done"):
+        raise HTTPException(status_code=400, detail="视频处理尚未完成")
+
+    frames = [Path(p) for p in job.get("frames", [])]
+    frames = [p for p in frames if p.exists()]
+    if not frames:
+        raise HTTPException(status_code=400, detail="没有帧可导出")
+
+    first_stem = Path(job["src_file"]).stem
+    safe_stem = "".join(ch if ch not in '<>:"/\\|?*\r\n' else "_" for ch in first_stem).strip("._ ")
+    if not safe_stem:
+        safe_stem = "frames"
+    pad = max(2, len(str(len(frames))))
+    zip_name = f"{safe_stem}_图片.zip"
+    zip_path = Path(job["temp_dir"]) / zip_name
+
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for idx, frame in enumerate(frames, start=1):
+            ext = frame.suffix.lower() or ".jpg"
+            zf.write(frame, arcname=f"{safe_stem}{idx:0{pad}d}{ext}")
+
+    job["images_zip_filename"] = zip_name
+    job["logs"].append(("done", f"图片 ZIP 生成成功: {zip_name}"))
+    return {"job_id": job_id, "status": "images_zip_done", "result_filename": zip_name}
+
+
+@router.get("/api/video/jobs/{job_id}/images-zip/download")
+async def download_video_images_zip(job_id: str):
+    """下载当前保留帧图片 ZIP。"""
+    if not ENABLE_VIDEO_IMAGE_ZIP:
+        raise HTTPException(status_code=404, detail="当前版本不包含视频转图片功能")
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    result_name = job.get("images_zip_filename", "")
+    if not result_name:
+        raise HTTPException(status_code=400, detail="图片 ZIP 尚未生成")
+    zip_path = Path(job["temp_dir"]) / result_name
+    if not zip_path.exists():
+        raise HTTPException(status_code=404, detail=f"图片 ZIP 不存在: {result_name}")
+    return _download_zip_response(zip_path, result_name)
+
+
 # 注册路由
+if not ENABLE_WORD:
+    router.routes[:] = [
+        route for route in router.routes
+        if "/word" not in getattr(route, "path", "").lower()
+    ]
+if not ENABLE_VIDEO_IMAGE_ZIP:
+    router.routes[:] = [
+        route for route in router.routes
+        if "images-zip" not in getattr(route, "path", "").lower()
+    ]
+
 app.include_router(router)

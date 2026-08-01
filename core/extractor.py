@@ -21,7 +21,7 @@ class FrameExtractionError(RuntimeError):
 
 
 def _find_ffmpeg(custom_path: str | None = None) -> str:
-    """Find FFmpeg: custom path > built-in > system PATH."""
+    """Find FFmpeg: custom path > portable tools folder > legacy resources > PATH."""
     # 1. Custom path
     if custom_path:
         p = Path(custom_path)
@@ -30,21 +30,22 @@ def _find_ffmpeg(custom_path: str | None = None) -> str:
             return str(p)
         raise FFmpegNotInstalledError("Custom FFmpeg path not found: " + str(p))
 
-    # 2. Built-in (PyInstaller or resources/)
+    # 2. Portable locations. Official release packages do not include FFmpeg,
+    # but users may place ffmpeg.exe in tools/ffmpeg/ manually.
     candidates = []
     if getattr(sys, 'frozen', False):
-        # PyInstaller onedir: exe 同级
+        candidates.append(Path(sys.executable).parent / "tools" / "ffmpeg" / "ffmpeg.exe")
         candidates.append(Path(sys.executable).parent / "resources" / "ffmpeg" / "ffmpeg.exe")
-        # PyInstaller onedir: _internal 下 (--add-data 可能放入 _internal)
+        candidates.append(Path(sys.executable).parent / "_internal" / "tools" / "ffmpeg" / "ffmpeg.exe")
         candidates.append(Path(sys.executable).parent / "_internal" / "resources" / "ffmpeg" / "ffmpeg.exe")
     if hasattr(sys, '_MEIPASS'):
-        # PyInstaller 临时解压目录
+        candidates.append(Path(sys._MEIPASS) / "tools" / "ffmpeg" / "ffmpeg.exe")
         candidates.append(Path(sys._MEIPASS) / "resources" / "ffmpeg" / "ffmpeg.exe")
-    # Source tree
+    candidates.append(Path(__file__).resolve().parent.parent / "tools" / "ffmpeg" / "ffmpeg.exe")
     candidates.append(Path(__file__).resolve().parent.parent / "resources" / "ffmpeg" / "ffmpeg.exe")
     for c in candidates:
         if c.exists():
-            logger.info("FFmpeg (built-in): %s", c)
+            logger.info("FFmpeg (portable): %s", c)
             return str(c)
 
     # 3. System PATH
@@ -59,10 +60,12 @@ def _find_ffmpeg(custom_path: str | None = None) -> str:
         pass
 
     raise FFmpegNotInstalledError(
-        "FFmpeg not found. Options:\n"
-        "  1. Place ffmpeg.exe in resources/ffmpeg/\n"
-        "  2. Install FFmpeg and add to PATH\n"
-        "  3. Use --ffmpeg-path to specify location"
+        "FFmpeg not found. Video processing requires FFmpeg.\n"
+        "Options:\n"
+        "  1. Run the included FFmpeg helper installer package.\n"
+        "  2. Install FFmpeg from https://ffmpeg.org/ and make it available in PATH.\n"
+        "  3. Place ffmpeg.exe in tools/ffmpeg/ next to the application.\n"
+        "  4. Use --ffmpeg-path to specify a custom location."
     )
 
 
@@ -82,8 +85,8 @@ def check_ffmpeg(custom_path: str | None = None) -> str:
         raise FFmpegNotInstalledError("FFmpeg not found: " + ffmpeg) from None
 
 
-def _build_vf_filter(fps: float, crop_ratio: tuple | None, crop_pixels: tuple | None) -> str:
-    """Build FFmpeg -vf filter chain: crop first, then fps."""
+def _build_crop_filter(crop_ratio: tuple | None, crop_pixels: tuple | None) -> str:
+    """Build the optional FFmpeg crop filter."""
     filters = []
 
     if crop_ratio:
@@ -98,8 +101,53 @@ def _build_vf_filter(fps: float, crop_ratio: tuple | None, crop_pixels: tuple | 
         left, top, width, height = crop_pixels
         filters.append("crop={w}:{h}:{x}:{y}".format(w=width, h=height, x=left, y=top))
 
-    filters.append("fps=" + str(fps))
     return ",".join(filters)
+
+
+def _build_vf_filter(fps: float, crop_ratio: tuple | None, crop_pixels: tuple | None) -> str:
+    """Build FFmpeg -vf filter chain: crop first, then fps."""
+    filters = []
+    crop_filter = _build_crop_filter(crop_ratio, crop_pixels)
+    if crop_filter:
+        filters.append(crop_filter)
+
+    interval = 1.0 / fps
+    filters.append("select='eq(n\\,0)+gte(t\\,prev_selected_t+{interval})'".format(interval=interval))
+    filters.append("setpts=N/FRAME_RATE/TB")
+    return ",".join(filters)
+
+
+def _extract_tail_frame(
+    ffmpeg: str,
+    video_path: Path,
+    temp_dir: Path,
+    crop_ratio: tuple | None,
+    crop_pixels: tuple | None,
+) -> None:
+    """Force an extra frame from the end of the video when FFmpeg supports it."""
+    tail_path = temp_dir / "frame_999999.jpg"
+    cmd = [
+        ffmpeg, "-hide_banner", "-loglevel", "error",
+        "-sseof", "-0.1",
+        "-i", str(video_path),
+        "-frames:v", "1",
+        "-qscale:v", "2",
+        "-y",
+    ]
+    crop_filter = _build_crop_filter(crop_ratio, crop_pixels)
+    if crop_filter:
+        cmd += ["-vf", crop_filter]
+    cmd.append(str(tail_path))
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60,
+            encoding="utf-8", errors="replace",
+        )
+        if result.returncode != 0 or not tail_path.exists():
+            logger.info("Tail frame extraction skipped: %s", result.stderr.strip())
+    except Exception as exc:
+        logger.info("Tail frame extraction skipped: %s", exc)
 
 
 def extract_frames(
@@ -155,6 +203,8 @@ def extract_frames(
         raise FrameExtractionError(
             "FFmpeg failed: " + video_path.name + "\n" + result.stderr.strip()
         )
+
+    _extract_tail_frame(ffmpeg, video_path, temp_dir, crop_ratio, crop_pixels)
 
     frames = sorted(temp_dir.glob("frame_*.jpg"))
     if not frames:

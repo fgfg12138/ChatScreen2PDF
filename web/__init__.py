@@ -1,1 +1,1 @@
-"""ChatScreen2PDF Web 服务。"""
+"""Framescreen2PDF Web service."""

@@ -6,7 +6,10 @@ PaddleOCR 作为可选依赖，未安装时自动降级。
 """
 
 import logging
+import os
 import re
+import sys
+import importlib.util
 from pathlib import Path
 from typing import Optional
 
@@ -21,32 +24,124 @@ OCR_MIN_NEW_LINES = 2         # 新增行数达到此值优先保留
 OCR_MIN_REGION_SIZE = 20      # OCR 区域最小宽高
 
 _ocr_engine = None
+_ocr_init_failed = False
+
+
+def _candidate_ocr_site_packages() -> list[Path]:
+    """Known optional OCR install locations outside the bundled runtime."""
+    candidates = []
+    env_path = os.environ.get("CHATSCREEN2PDF_OCR_SITE_PACKAGES", "")
+    if env_path:
+        candidates.extend(Path(p) for p in env_path.split(os.pathsep) if p.strip())
+
+    # Optional portable OCR attachment next to the executable.
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.append(exe_dir / "ocr" / "site-packages")
+        candidates.append(exe_dir / "OCR" / "site-packages")
+
+    project_dir = Path(__file__).resolve().parent.parent
+    candidates.append(project_dir / "ocr" / "site-packages")
+
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if local_appdata:
+        candidates.append(Path(local_appdata) / "hermes" / "hermes-agent" / "venv" / "Lib" / "site-packages")
+
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        for py_dir in ("Python312", "Python311", "Python310"):
+            candidates.append(Path(appdata) / "Python" / py_dir / "site-packages")
+
+    return candidates
+
+
+def _ensure_optional_ocr_path() -> None:
+    """Allow OCR installed by the user's terminal to be discovered by the app."""
+    for path in _candidate_ocr_site_packages():
+        if path.exists() and (path / "paddleocr").exists():
+            path_str = str(path)
+            if path_str not in sys.path:
+                sys.path.insert(0, path_str)
+            return
 
 
 # ── 引擎管理 ────────────────────────────────────────────────
 
 def is_ocr_available() -> bool:
     """检查 PaddleOCR 是否可用。"""
+    _ensure_optional_ocr_path()
     try:
         import paddleocr  # noqa: F401
         return True
     except ImportError:
         return False
+    except Exception as e:
+        # Some PaddleOCR/PaddleX versions can raise runtime errors during import
+        # after a previous partial initialization. OCR is optional, so never let
+        # this break the video conversion pipeline.
+        logger.warning("PaddleOCR 可用性检查失败，已降级为未安装: %s", e)
+        return False
+
+
+def get_ocr_status() -> dict:
+    """Lightweight OCR install detection without initializing OCR models."""
+    _ensure_optional_ocr_path()
+    try:
+        paddleocr_spec = importlib.util.find_spec("paddleocr")
+        paddle_spec = importlib.util.find_spec("paddle")
+    except Exception as e:
+        return {
+            "installed": False,
+            "paddleocr": False,
+            "paddle": False,
+            "message": f"OCR 检测失败: {e}",
+        }
+
+    paddleocr_ok = paddleocr_spec is not None
+    paddle_ok = paddle_spec is not None
+    if paddleocr_ok and paddle_ok:
+        message = "OCR 组件已检测到"
+    elif paddleocr_ok:
+        message = "已检测到 PaddleOCR，但缺少 PaddlePaddle"
+    elif paddle_ok:
+        message = "已检测到 PaddlePaddle，但缺少 PaddleOCR"
+    else:
+        message = "未检测到 OCR 组件"
+    return {
+        "installed": paddleocr_ok and paddle_ok,
+        "paddleocr": paddleocr_ok,
+        "paddle": paddle_ok,
+        "message": message,
+    }
 
 
 def _get_ocr_engine(lang: str = "ch"):
     """懒加载 PaddleOCR 引擎。"""
-    global _ocr_engine
+    global _ocr_engine, _ocr_init_failed
     if _ocr_engine is not None:
         return _ocr_engine
+    if _ocr_init_failed:
+        return None
     if not is_ocr_available():
         return None
     try:
         from paddleocr import PaddleOCR
-        _ocr_engine = PaddleOCR(lang=lang, use_angle_cls=False, show_log=False)
+        try:
+            _ocr_engine = PaddleOCR(lang=lang, use_angle_cls=False, show_log=False)
+        except Exception as e:
+            # PaddleOCR 3.x removed show_log/use_angle_cls and renamed angle options.
+            if "Unknown argument" not in str(e):
+                raise
+            _ocr_engine = PaddleOCR(
+                lang=lang,
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                use_textline_orientation=False,
+            )
         logger.info("PaddleOCR 引擎已初始化 (lang=%s)", lang)
         return _ocr_engine
     except Exception as e:
+        _ocr_init_failed = True
         logger.warning("PaddleOCR 初始化失败: %s", e)
         return None
 

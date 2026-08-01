@@ -12,6 +12,7 @@ test_ocr_service.py — OCR 服务模块测试（Phase 4-6）。
 """
 
 import sys
+import builtins
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -30,6 +31,21 @@ def test_is_ocr_available_doesnt_crash():
     """即使无 PaddleOCR，is_ocr_available 也不会崩溃。"""
     result = is_ocr_available()
     assert isinstance(result, bool)
+
+
+def test_is_ocr_available_handles_runtime_import_error():
+    original_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "paddleocr":
+            raise RuntimeError("PDX has already been initialized. Reinitialization is not supported.")
+        return original_import(name, *args, **kwargs)
+
+    builtins.__import__ = fake_import
+    try:
+        assert is_ocr_available() is False
+    finally:
+        builtins.__import__ = original_import
 
 
 def test_clean_ocr_lines_empty():

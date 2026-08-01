@@ -1,192 +1,86 @@
-# ChatScreen2PDF v1.0.0-ocr-ready
+# Framescreen2PDF v1.0.0
 
-聊天记录证据整理工具 — 完全本地运行，不上传任何数据。
+Framescreen2PDF 是一个本地 Web 工具，用于把图片、长截图、视频帧转换为 PDF 或 Word 文件。程序启动后会自动打开浏览器，所有处理都在本机完成，不上传文件、不需要账号、不依赖云服务。
 
-**截图 → 长截图 → 视频 → 人工校对 → 证据 PDF**
+## 启动方式
 
-## 快速启动
+源码运行：
 
 ```bash
 pip install -r requirements.txt
 python web_app.py
 ```
 
-浏览器自动打开 http://127.0.0.1:18766/
+Windows 便携版：
 
-> 需要 FFmpeg：确保 `ffmpeg -version` 可运行，或将 ffmpeg.exe 放入 `resources/ffmpeg/`
+1. 解压发布包。
+2. 双击 `Framescreen2PDF.exe`。
+3. 浏览器自动打开 `http://127.0.0.1:18766/`。
+4. 使用完成后，在页面右上角点击“关闭程序”。
 
 ## 功能
 
-| 功能 | 说明 |
-|------|------|
-| **截图生成 PDF** | 多张图片上传 → 缩略图预览 → 2×2 A4 PDF |
-| **长截图切片** | 上传长截图 → 自动切片 → 预览 → 删除/排序 → PDF |
-| **视频转 PDF** | 上传 MP4 → 抽帧 → 模糊过滤 → aHash 去重 → 预览 → 删除/排序 → PDF |
-| **人工校对** | 每张截图/切片/帧可删除、拖拽排序、编号跟随更新 |
-| **多布局** | 1×1 / 1×2 / 2×2 / 2×3 行列配置 |
-| **方向控制** | 左右优先 / 上下优先 |
-| **页码/编号** | 可开关，截图编号默认右上角 |
-| **证据封面** | 可选：封面页、生成时间、SHA256 哈希、参数记录 |
-| **水印** | 可选文字水印 |
+- 图片转 PDF/Word：多图上传、缩略图预览、删除、拖拽排序、布局、编号、页码、缩放模式、水印。
+- 长截图转 PDF/Word：自动切片、缩略图预览、删除、拖拽排序、布局、编号、页码、水印。
+- 视频转 PDF/Word：抽帧、首帧和尾帧保留、模糊过滤、可选图像去重、可选 OCR 辅助、手动框选主要区域、缩略图校对。
+- PDF 导出：支持 A4 纵向、多布局、可选封面、哈希信息、斜向平铺水印。
+- Word 导出：按页插入截图，图片自适应页面，支持编号。
 
-## 使用
+## FFmpeg 视频组件
 
-### 截图生成 PDF
-1. 点击「选择图片」上传 PNG/JPG/WEBP
-2. 调整布局、方向、缩放模式
-3. 点击「生成 PDF」→ 下载
+视频处理需要 FFmpeg。发布包不内置 FFmpeg。
 
-### 长截图转 PDF
-1. 切换到「长截图处理」标签
-2. 设置切片高度和重叠区域
-3. 上传长截图 → 自动切片 → 可删除/拖拽排序
-4. 点击「生成 PDF」
+普通用户推荐使用随附的 `FFmpeg-video-component-installer.zip`：
 
-### 视频转 PDF（含 OCR 辅助）
-1. 切换到「视频处理」标签
-2. （可选）上传 MP4 后点击「加载参考帧」框选聊天内容区域
-3. （可选）填写内容排除白名单
-4. 上传 MP4 → 自动抽帧 → 模糊过滤 → OCR 连续性判断
-5. 预览筛选帧 → 查看每帧保留原因
-6. 可删除/拖拽排序
-7. 点击「生成 PDF」
+1. 解压附件。
+2. 双击 `安装FFmpeg视频组件.bat`。
+3. 按提示确认安装。
+4. 安装完成后重新打开主程序。
 
-> OCR 区域应框选聊天正文区域，不包含顶部标题栏、输入框、状态栏。
-> 排除词填写常见 UI 文案（如"发送"、"语音"），帮助过滤非聊天内容。
+官方地址：
 
-## 权限
+- FFmpeg 官网: https://ffmpeg.org/
+- 下载说明: https://ffmpeg.org/download.html
 
-- 所有处理在本地完成
-- 不上传任何文件到服务器
-- 不依赖云服务
-- 不需要账号登录
+离线电脑可以让技术人员将 `ffmpeg.exe` 所在目录加入系统 PATH，或把 `ffmpeg.exe` 放到主程序同级的 `tools/ffmpeg/ffmpeg.exe`。
 
-## OCR 功能
+## OCR 可选组件
 
-OCR 使用本地 PaddleOCR，**不上传任何数据到云端**。
+OCR 仅用于辅助视频帧筛选，不会把截图内容转换成文字稿。发布包不内置 OCR 依赖。
 
-### 安装
+普通用户可使用随附的 `PaddleOCR-PaddlePaddle-optional-installer.zip`：
+
+1. 解压附件到主程序 EXE 同级目录。
+2. 双击 `安装PaddleOCR到程序目录.bat`。
+3. 等待安装完成。
+4. 重新打开主程序。
+
+官方地址：
+
+- PaddleOCR GitHub: https://github.com/PaddlePaddle/PaddleOCR
+- PaddlePaddle 官网: https://www.paddlepaddle.org.cn/
+- PaddleOCR PyPI: https://pypi.org/project/paddleocr/
+- PaddlePaddle PyPI: https://pypi.org/project/paddlepaddle/
+
+如果电脑不能联网，可在联网电脑运行安装脚本生成 `ocr/site-packages`，再把整个 `ocr` 文件夹复制到离线电脑的主程序 EXE 同级目录。
+
+## 构建
+
+源码包：
 
 ```bash
-pip install paddleocr paddlepaddle
-```
-
-首次 OCR 会下载模型文件（约 100MB），之后离线可用。
-
-### 功能
-
-| 功能 | 说明 |
-|------|------|
-| **参考帧框选** | 上传视频后加载参考帧，鼠标拖拽选择聊天内容区域 |
-| **排除词白名单** | 填写排除词，OCR 判断连续性时忽略包含这些词的文本行 |
-| **OCR 连续性判断** | 比较相邻帧的文本重叠度，判断是否为重复帧或断层 |
-| **保留原因** | 每帧显示保留/跳过原因、文本行数、警告信息 |
-| **无 OCR 降级** | PaddleOCR 未安装时自动降级为图像去重，不崩溃 |
-
-### OCR 使用步骤
-
-1. 上传 MP4 视频
-2. 点击「加载参考帧」按钮
-3. 在参考帧上鼠标拖拽框选聊天区域
-4. （可选）填写排除词白名单
-5. 点击「处理视频」
-6. 查看每帧的保留原因和 OCR 文本行数
-7. 删除不需要的帧，拖拽排序
-8. 生成 PDF
-
-### FAQ
-
-**PaddleOCR 是否收费？**
-PaddleOCR 是百度开源的本地 OCR 引擎，完全免费。
-
-**为什么第一次 OCR 很慢？**
-首次使用需下载模型文件（约 100MB），后续使用无需下载。
-
-**OCR 未启用怎么办？**
-安装 PaddleOCR 后自动启用。未安装时使用图像去重，功能不受影响。
-
-**为什么要框选聊天区域？**
-减少 OCR 识别范围，提高准确性和速度，避免识别标题栏、输入框等无关区域。
-
-**排除词怎么填？**
-常见聊天 UI 文案：微信、文件传输助手、发送、语音、聊天信息、视频通话等。
-每行一个词，包含该词的文本行将被忽略。
-
-**OCR 识别错了会影响 PDF 吗？**
-OCR 结果仅用于连续性判断，不影响 PDF 正文内容。即使 OCR 识别错误，图片仍会正常显示在 PDF 中。
-
-**是否上传聊天记录到服务器？**
-不。所有处理在本地完成。PaddleOCR 本地运行，不依赖任何云服务。
-
-## 参数
-
-| 参数 | 默认 | 作用 |
-|------|------|------|
-| 布局 | 2×2 | 每页行列数 |
-| 方向 | 左右优先 | 图片排列顺序 |
-| 标题 | 自动 | PDF 标题 |
-| 编号 | 开 | 截图右上角编号 |
-| 页码 | 关 | 页面底部页码 |
-| 缩放 | 完整显示 | 保留比例/裁剪填充 |
-| 封面 | 关 | 证据封面+哈希 |
-| 水印 | 无 | 文字水印字符串 |
-
-## 常见问题
-
-**Q: 服务启动后浏览器没自动打开？**
-A: 手动访问 http://127.0.0.1:18766/
-
-**Q: 如何确认当前运行的是新 WebUI？**
-A: 在浏览器中按 Ctrl+U 查看网页源码，搜索「第 1 步：选择视频」。如果能搜到，说明是新版。搜不到则是旧版，请确认：
-
-```bash
-# 1. 确认分支
-git branch --show-current
-# 应输出: feature/ocr-complete
-
-# 2. 确认文件内容
-findstr /C:"第 1 步：选择视频" web\static\index.html
-findstr /C:"/api/video/draft" web\static\index.html
-findstr /C:"create_video_draft" web\routes.py
-
-# 3. 如果以上都不对，切换到正确分支
-git checkout feature/ocr-complete
-git reset --hard origin/feature/ocr-complete
-```
-
-**Q: FFmpeg not found？**
-A: 下载 ffmpeg 并加入 PATH，或将 ffmpeg.exe 放入 `resources/ffmpeg/`
-
-**Q: 端口被占用？**
-A: 关闭占用 18766 端口的程序后重试
-
-## 测试
-
-```bash
-python -m pytest -q -p asyncio
-python run_tests.py
-```
-
-## 打包
-
-```bash
-# Windows 便携版
-pip install pyinstaller
-python scripts/build_exe.py
-
-# 源码包
 python scripts/build_release.py
 ```
 
-## 路线图
+Windows 包：
 
-| 阶段 | 状态 |
-|------|------|
-| Phase 0: Web 基础 + 截图 PDF | ✅ |
-| Phase 1: 多布局排版 | ✅ |
-| Phase 2: 长截图切片 | ✅ |
-| Phase 3: 人工校对（删除/排序） | ✅ |
-| Phase 4: 视频处理 | ✅ |
-| Phase 5: OCR 辅助筛选 | ✅ 已交付 |
-| Phase 6: 证据封面/哈希/水印 | ✅ |
-| Phase 7: Windows 打包 | ✅ |
+```bash
+python scripts/build_exe.py --all
+```
+
+可选附件：
+
+```bash
+python scripts/build_ffmpeg_installer.py
+python scripts/build_ocr_attachment.py
+```

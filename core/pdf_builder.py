@@ -184,7 +184,7 @@ def _draw_text_boxes(c, boxes, page_w, page_h, font_name="Helvetica"):
             c.drawString(x, y + h * 0.1, text)
 
 
-# ── Phase 1: 证据 PDF 排版系统 ─────────────────────────────────
+# ── PDF layout system ─────────────────────────────────────────
 
 A4_WIDTH, A4_HEIGHT = A4  # 595.27 x 841.89 pt
 DEFAULT_MARGIN = 20
@@ -285,7 +285,7 @@ def build_grid_pdf(
     show_page_number: bool = False,
 ) -> Path:
     """
-    生成证据 PDF 排版。
+    生成图片网格 PDF。
 
     Args:
         image_paths: 图片路径列表。
@@ -405,7 +405,7 @@ def _add_page_numbers(pdf_path: str, total_pages: int) -> None:
         logger.warning("Failed to add page numbers: %s", e)
 
 
-# ── Phase 6: 证据增强 ───────────────────────────────────────
+# ── PDF info cover / hash / watermark ────────────────────────
 
 def _sha256(file_path: Path) -> str:
     """计算文件的 SHA256 哈希值。"""
@@ -418,12 +418,12 @@ def _sha256(file_path: Path) -> str:
 
 def build_cover_page(
     output_path: Path,
-    title: str = "聊天记录证据",
+    title: str = "Framescreen2PDF",
     source_files: list[Path] = None,
     params: dict = None,
 ) -> Path:
     """
-    生成证据封面页。
+    生成 PDF 信息封面页。
     """
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas as rl_canvas
@@ -496,7 +496,7 @@ def build_evidence_pdf(
     source_files: list[Path] = None,
 ) -> Path:
     """
-    生成带证据增强的 PDF。
+    生成带信息封面、哈希或水印的 PDF。
     在 build_grid_pdf 基础上可选添加封面、水印。
     """
     output_path = Path(output_path)
@@ -542,33 +542,64 @@ def build_evidence_pdf(
     else:
         main_path.rename(output_path)
 
-    # 可选水印（简化：在每页叠加文字）
     if watermark:
         try:
-            import pikepdf
-            pdf = pikepdf.open(str(output_path))
-            from reportlab.pdfgen import canvas as rl_canvas
-            for page_num in range(len(pdf.pages)):
-                packet = io.BytesIO()
-                c = rl_canvas.Canvas(packet, pagesize=A4)
-                c.setFont("Helvetica", 40)
-                from reportlab.lib.colors import Color
-                c.setFillColor(Color(0.5, 0.5, 0.5, alpha=0.15))
-                c.saveState()
-                c.translate(A4_WIDTH / 2, A4_HEIGHT / 2)
-                c.rotate(45)
-                c.drawCentredString(0, 0, watermark)
-                c.restoreState()
-                c.save()
-                packet.seek(0)
-                overlay = pikepdf.open(packet)
-                page = pdf.pages[page_num]
-                page.contents_add(overlay.pages[0].contents, prepend=False)
-            pdf.save(str(output_path))
-            pdf.close()
+            _add_tiled_watermark(output_path, watermark)
         except Exception as e:
             logger.warning("Watermark failed: %s", e)
 
     logger.info("Evidence PDF: %s (%.2f MB)", output_path.name,
                 output_path.stat().st_size / 1024 / 1024)
     return output_path
+
+
+def _watermark_font_name() -> str:
+    font_path = _find_cjk_font()
+    if not font_path:
+        return "Helvetica-Bold"
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        if "WatermarkCJK" not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont("WatermarkCJK", font_path))
+        return "WatermarkCJK"
+    except Exception:
+        return "Helvetica-Bold"
+
+
+def _build_watermark_overlay(text: str) -> io.BytesIO:
+    packet = io.BytesIO()
+    c = canvas.Canvas(packet, pagesize=A4)
+    font_name = _watermark_font_name()
+    c.setFont(font_name, 22)
+    c.setFillColor(Color(0.55, 0.55, 0.55, alpha=0.22))
+
+    step_x = 210
+    step_y = 170
+    for y in range(-80, int(A4_HEIGHT) + step_y, step_y):
+        for x in range(-80, int(A4_WIDTH) + step_x, step_x):
+            c.saveState()
+            c.translate(x, y)
+            c.rotate(32)
+            c.drawString(0, 0, text)
+            c.restoreState()
+
+    c.save()
+    packet.seek(0)
+    return packet
+
+
+def _add_tiled_watermark(pdf_path: Path, text: str) -> None:
+    """Overlay a light diagonal tiled watermark on every PDF page."""
+    import pikepdf
+
+    overlay_pdf = pikepdf.open(_build_watermark_overlay(text))
+    pdf = pikepdf.open(str(pdf_path), allow_overwriting_input=True)
+    try:
+        overlay_page = overlay_pdf.pages[0]
+        for page in pdf.pages:
+            page.add_overlay(overlay_page)
+        pdf.save(str(pdf_path))
+    finally:
+        pdf.close()
+        overlay_pdf.close()

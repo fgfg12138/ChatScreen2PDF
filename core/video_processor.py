@@ -37,6 +37,7 @@ def filter_frames(
     blur_threshold: float = BLUR_THRESHOLD,
     dedup_threshold: int = 10,
     global_dedup: bool = False,
+    dedup_enabled: bool = True,
 ) -> list[Path]:
     """
     综合筛选：模糊过滤 + 相似度去重。
@@ -53,8 +54,8 @@ def filter_frames(
     if not frame_paths:
         return []
 
-    logger.info("Filtering %d frames (blur=%s, dedup=%d, global=%s)",
-                len(frame_paths), blur_threshold, dedup_threshold, global_dedup)
+    logger.info("Filtering %d frames (blur=%s, dedup=%d, global=%s, dedup_enabled=%s)",
+                len(frame_paths), blur_threshold, dedup_threshold, global_dedup, dedup_enabled)
 
     # 1. 模糊过滤
     kept = []
@@ -75,6 +76,10 @@ def filter_frames(
                 len(frame_paths), len(kept), blur_dropped)
 
     # 2. 去重
+    if not dedup_enabled:
+        logger.info("Image dedup disabled: %d frames kept", len(kept))
+        return kept
+
     from core.dedup import dedup_frames
     kept = dedup_frames(kept, dedup_threshold, "global" if global_dedup else "consecutive")
 
@@ -87,6 +92,7 @@ def extract_video_frames(
     output_dir: Path,
     interval: float = DEFAULT_INTERVAL,
     ffmpeg_path: str | None = None,
+    crop_pixels: tuple | None = None,
 ) -> list[Path]:
     """
     从视频中提取帧。内部使用 core/extractor 的 FFmpeg 逻辑。
@@ -101,6 +107,7 @@ def extract_video_frames(
         fps=fps,
         temp_dir=output_dir,
         ffmpeg_path=ffmpeg_path,
+        crop_pixels=crop_pixels,
     )
     logger.info("Extracted %d frames from %s (interval=%.1fs, fps=%.2f)",
                 len(frames), video_path.name, interval, fps)

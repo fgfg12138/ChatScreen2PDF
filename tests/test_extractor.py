@@ -54,6 +54,12 @@ def test_extract_frames_sorted_output(tmp_path):
     assert frames == sorted(frames)
 
 
+def test_extract_frames_includes_tail_frame(tmp_path):
+    video = _create_test_video(tmp_path / "test.mp4", duration=4)
+    frames = extract_frames(video, fps=0.5, temp_dir=tmp_path / "t")
+    assert any(f.name == "frame_999999.jpg" for f in frames)
+
+
 def test_extract_frames_with_crop_ratio(tmp_path):
     video = _create_test_video(tmp_path / "test.mp4", duration=2)
     frames = extract_frames(video, fps=1.0, temp_dir=tmp_path / "t",

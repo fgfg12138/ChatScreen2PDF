@@ -163,7 +163,7 @@ def test_build_grid_pdf_direction_tb(tmp_path):
 
 def test_build_grid_pdf_title(tmp_path):
     imgs = [_create_test_image_grid(tmp_path / "a.jpg")]
-    result = build_grid_pdf(imgs, tmp_path / "out.pdf", title="证据截图")
+    result = build_grid_pdf(imgs, tmp_path / "out.pdf", title="截图文件")
     assert result.exists()
 
 

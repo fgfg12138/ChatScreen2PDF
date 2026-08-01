@@ -80,3 +80,14 @@ def test_filter_frames_drops_blurry(tmp_path):
     result = filter_frames([clear, blurry], blur_threshold=0.5)
     assert len(result) >= 1
     assert all(p.exists() for p in result)
+
+
+def test_filter_frames_can_disable_image_dedup(tmp_path):
+    imgs = [_create_sharp_image(tmp_path / f"chat_{i}.jpg") for i in range(3)]
+    result = filter_frames(
+        imgs,
+        blur_threshold=0.1,
+        dedup_threshold=999,
+        dedup_enabled=False,
+    )
+    assert result == imgs

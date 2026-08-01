@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ChatScreen2PDF — 聊天记录证据 PDF 工具 v1.0.0-ocr-ready</title>
+<title>Framescreen2PDF — 视频/截图转 PDF/Word 工具</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; }
@@ -63,22 +63,25 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
 /* 错误提示 */
 .error-msg { display: none; background: #5c1a1a; color: #ff8888; padding: 12px; border-radius: 4px; margin-bottom: 12px; }
 .error-msg.show { display: block; }
+.edition-note { color:#aaa; font-size:12px; background:#22283a; border-left:3px solid #4CAF50; padding:8px; border-radius:4px; margin-bottom:12px; }
+.lite-only { display:none; }
 </style>
 </head>
 <body>
 <div class="container">
   <!-- 头部 -->
   <div class="header">
-    <h1>聊天记录证据 PDF 工具</h1>
+    <h1 id="appTitle">视频/截图转 PDF/Word 工具</h1>
     <span class="local-badge">所有处理仅在本地完成</span>
-    <span style="background:#555;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px">v1.0.0-ocr-ready</span>
+    <span id="versionBadge" style="background:#555;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px">Framescreen2PDF</span>
+    <button class="btn btn-secondary" id="shutdownBtn" style="padding:6px 12px;font-size:12px">关闭程序</button>
   </div>
 
   <!-- 入口标签 -->
   <div class="entry-tabs">
-    <button class="active" id="tabScreenshot">截图生成 PDF</button>
-    <button id="tabVideo">视频处理</button>
-    <button id="tabLong">长截图处理</button>
+    <button class="active" id="tabScreenshot">图片转 PDF/Word</button>
+    <button id="tabVideo">视频转 PDF/Word</button>
+    <button id="tabLong">长截图转 PDF/Word</button>
   </div>
 
   <!-- 截图生成 PDF 区域 -->
@@ -118,6 +121,10 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
     <label style="font-size:13px;display:flex;align-items:center;gap:4px">
       <input type="checkbox" id="showPageNumber"> 页码
     </label>
+    <label class="watermark-control" style="font-size:13px;display:flex;align-items:center;gap:4px">
+      <input type="checkbox" id="enableWatermark"> 添加水印
+    </label>
+    <input class="watermark-control" type="text" id="watermarkText" value="Framescreen2PDF" placeholder="水印文字" style="background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px 10px;width:150px">
   </div>
 
   <!-- 缩略图 -->
@@ -140,19 +147,23 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
   </div>
 
   <!-- 生成按钮 -->
-  <button class="btn btn-primary" id="btnGenerate" style="width:100%;padding:14px;font-size:16px;margin-bottom:12px">生成 PDF</button>
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="btn btn-primary" id="btnGenerate" style="flex:1;padding:14px;font-size:16px">生成 PDF</button>
+    <button class="btn btn-secondary word-only" id="btnGenerateWord" style="flex:1;padding:14px;font-size:16px;display:none">生成 Word</button>
+  </div>
 
   <!-- 下载区域 -->
   <div class="download-area" id="downloadArea">
     <span>✅ PDF 生成成功</span>
     <a class="download-link" id="downloadLink" href="#">下载 PDF</a>
+    <a class="download-link word-only" id="wordDownloadLink" href="#" style="display:none">下载 Word</a>
   </div>
 
   <!-- 日志 -->
   <div class="log-panel" id="logPanel"></div>
 </div>
 
-<!-- 长截图处理区域（隐藏） -->
+<!-- 长截图切片 PDF 区域（隐藏） -->
 <div id="longSection" style="display:none">
   <div class="toolbar">
     <button class="btn btn-secondary" id="longBtnSelect">选择长截图</button>
@@ -179,6 +190,10 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
     <label style="font-size:13px;display:flex;align-items:center;gap:4px">
       <input type="checkbox" id="longShowPageNumber"> 页码
     </label>
+    <label class="watermark-control" style="font-size:13px;display:flex;align-items:center;gap:4px">
+      <input type="checkbox" id="longEnableWatermark"> 添加水印
+    </label>
+    <input class="watermark-control" type="text" id="longWatermarkText" value="Framescreen2PDF" placeholder="水印文字" style="background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px 10px;width:150px">
   </div>
 
   <div class="thumb-area" id="longThumbArea">
@@ -196,11 +211,15 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
     <span class="progress-text" id="longProgressText"></span>
   </div>
 
-  <button class="btn btn-primary" id="longBtnGenerate" style="width:100%;padding:14px;font-size:16px;margin-bottom:12px">生成 PDF</button>
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="btn btn-primary" id="longBtnGenerate" style="flex:1;padding:14px;font-size:16px">生成 PDF</button>
+    <button class="btn btn-secondary word-only" id="longBtnGenerateWord" style="flex:1;padding:14px;font-size:16px;display:none">生成 Word</button>
+  </div>
 
   <div class="download-area" id="longDownloadArea">
     <span>✅ PDF 生成成功</span>
     <a class="download-link" id="longDownloadLink" href="#">下载 PDF</a>
+    <a class="download-link word-only" id="longWordDownloadLink" href="#" style="display:none">下载 Word</a>
   </div>
 
   <div class="log-panel" id="longLogPanel"></div>
@@ -212,7 +231,7 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
   <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;font-size:13px">
     <span style="background:#4CAF50;color:#fff;padding:4px 12px;border-radius:12px">第 1 步：选择视频</span>
     <span style="background:#333;color:#aaa;padding:4px 12px;border-radius:12px" id="step2">第 2 步：加载参考帧</span>
-    <span style="background:#333;color:#aaa;padding:4px 12px;border-radius:12px" id="step3">第 3 步：框选聊天区域</span>
+    <span style="background:#333;color:#aaa;padding:4px 12px;border-radius:12px" id="step3">第 3 步：框选主要区域</span>
     <span style="background:#333;color:#aaa;padding:4px 12px;border-radius:12px" id="step4">第 4 步：设置参数</span>
     <span style="background:#333;color:#aaa;padding:4px 12px;border-radius:12px" id="step5">第 5 步：开始转换</span>
   </div>
@@ -220,9 +239,12 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
   <!-- 选择视频 -->
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
     <button class="btn btn-secondary" id="videoBtnSelect">选择 MP4 视频</button>
-    <input type="file" id="videoFileInput" accept="video/mp4" style="display:none">
+    <input type="file" id="videoFileInput" accept="video/mp4" multiple style="display:none">
     <span id="videoFileName" style="color:#aaa;font-size:13px">未选择文件</span>
     <span id="videoFileSize" style="color:#666;font-size:12px"></span>
+  </div>
+  <div class="edition-note" id="ffmpegTip">
+    视频处理需要 FFmpeg。若提示 FFmpeg 未安装，请使用随附的“安装FFmpeg视频组件.bat”，或访问官网 https://ffmpeg.org/ 按官方方式安装。
   </div>
 
   <!-- 参数区 -->
@@ -245,13 +267,19 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
         <span style="color:#888;font-size:11px">推荐 10</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-        <label style="font-size:12px;color:#ddd;cursor:help" title="开启后会把当前截图和所有已保留截图比较，去重更彻底。普通聊天录屏建议关闭；如果视频里反复上下滑动可以开启。">全局去重 ℹ</label>
-        <input type="checkbox" id="globalDedup">
+        <input type="checkbox" id="enableDedup" title="聊天记录视频默认关闭图像去重，避免误删只变化文字的截图。">
+        <label style="font-size:12px;color:#ddd;cursor:help" for="enableDedup" title="聊天记录视频通常页面很相似，默认关闭图像去重，避免误删只变化文字的截图。确认有重复截图时再开启。">启用图像去重 ℹ</label>
+        <input type="checkbox" id="globalDedup" disabled>
+        <label style="font-size:12px;color:#888;cursor:help" for="globalDedup" title="开启后会把当前截图和所有已保留截图比较，去重更彻底。仅在已启用图像去重后可用。">全局去重</label>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <input type="checkbox" id="enableOcrAssist" title="开启后会使用本机 PaddleOCR 识别框选区域文字，辅助判断连续或重复画面。未安装 OCR 时会提示安装。">
+        <label style="font-size:12px;color:#ddd;cursor:help" for="enableOcrAssist" title="开启后会使用本机 PaddleOCR 识别框选区域文字，辅助判断连续或重复画面。适合文字变化明显的视频；未安装 OCR 时不会影响普通转换。">OCR辅助筛选 ℹ</label>
       </div>
     </div>
     <div style="flex:1;min-width:200px">
       <div style="font-size:12px;color:#aaa;margin-bottom:6px">📋 内容排除白名单</div>
-      <textarea id="excludeWords" rows="3" style="width:100%;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px;font-size:11px" placeholder="微信&#10;文件传输助手&#10;发送&#10;语音&#10;聊天信息" title="每行一个词，OCR 判断连续性时会忽略包含这些词的文本行。"></textarea>
+      <textarea id="excludeWords" rows="3" style="width:100%;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px;font-size:11px" title="每行一个词，OCR 判断连续性时会忽略包含这些词的文本行。"></textarea>
       <div style="font-size:10px;color:#666;margin-top:2px">每行一个词，OCR 判断连续性时会忽略包含这些词的文本行</div>
     </div>
   </div>
@@ -265,13 +293,15 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
       </select>
     </label>
     <label style="font-size:12px;color:#ddd"><input type="checkbox" id="videoShowNumber" checked> 编号</label>
+    <label class="watermark-control" style="font-size:12px;color:#ddd"><input type="checkbox" id="videoEnableWatermark"> 添加水印</label>
+    <input class="watermark-control" type="text" id="videoWatermarkText" value="Framescreen2PDF" placeholder="水印文字" style="width:150px;background:#2d2d44;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:4px">
   </div>
 
   <!-- OCR 区域 -->
   <div id="ocrSection" style="display:none;margin-bottom:12px">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <button class="btn btn-secondary" id="videoBtnLoadRef" style="padding:6px 14px;font-size:12px">📷 加载参考帧</button>
-      <button class="btn btn-secondary" id="videoBtnConfirmRegion" style="padding:6px 14px;font-size:12px">✅ 确认聊天区域</button>
+      <button class="btn btn-secondary" id="videoBtnConfirmRegion" style="padding:6px 14px;font-size:12px">✅ 确认区域</button>
       <button class="btn btn-secondary" id="videoBtnClearRegion" style="padding:6px 14px;font-size:12px">🔄 重新选择区域</button>
       <button class="btn btn-secondary" id="videoBtnUseFull" style="padding:6px 14px;font-size:12px">🖼 使用全图</button>
     </div>
@@ -283,8 +313,7 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
       <span style="color:#888">区域坐标: <span id="regionCoords" style="color:#aaa;font-family:monospace">未选择</span></span>
       <span id="ocrStatus" style="color:#888"></span>
     </div>
-    <div style="font-size:11px;color:#666;margin-top:4px">建议只框选聊天内容区域，不要包含顶部标题栏、输入框、状态栏和大面积空白。</div>
-    <div id="ocrInstallTip" style="display:none;font-size:11px;color:#ffa500;margin-top:4px;background:#2d2d20;padding:8px;border-radius:4px;border-left:3px solid #ffa500">📦 OCR 未安装，使用图像对比筛选。<br>安装后可用 AI 文本识别智能去重：在终端运行 <code style="background:#111;color:#ffa500;padding:2px 6px">pip install paddleocr paddlepaddle</code>（需 ~2GB 空间）</div>
+    <div id="ocrInstallTip" style="display:none;font-size:11px;color:#ffa500;margin-top:4px;background:#2d2d20;padding:8px;border-radius:4px;border-left:3px solid #ffa500">需要 OCR辅助筛选时，请先安装 PaddleOCR 与 PaddlePaddle。可使用随附 OCR 安装附件，或按官方说明安装。</div>
   </div>
 
   <!-- 缩略图 -->
@@ -313,11 +342,19 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
 
   <div style="display:flex;gap:12px;margin-bottom:8px">
     <button class="btn btn-primary" id="videoBtnGenerate" style="flex:1;padding:14px;font-size:15px;font-weight:bold">开始转换</button>
+    <button class="btn btn-secondary word-only" id="videoBtnGenerateWord" style="flex:1;padding:14px;font-size:15px;font-weight:bold;display:none" disabled>生成 Word</button>
+    <button class="btn btn-secondary full-only" id="videoBtnImagesZip" style="flex:1;padding:14px;font-size:15px;font-weight:bold;display:none" disabled>下载图片 ZIP</button>
   </div>
 
   <div class="download-area" id="videoDownloadArea">
     <span style="color:#88ff88">✅ PDF 生成成功</span>
     <a class="download-link" id="videoDownloadLink" href="#" target="_blank" style="font-size:16px;padding:12px 24px">📥 下载 PDF</a>
+    <a class="download-link word-only" id="videoWordDownloadLink" href="#" target="_blank" style="display:none;font-size:16px;padding:12px 24px">📄 下载 Word</a>
+    <a class="download-link full-only" id="videoImagesZipDownloadLink" href="#" target="_blank" style="display:none;font-size:16px;padding:12px 24px">🖼 下载图片 ZIP</a>
+    <a class="download-link" id="videoBatchDownloadLink" href="#" target="_blank" style="display:none;font-size:16px;padding:12px 24px">📦 全部下载 PDF</a>
+    <a class="download-link word-only" id="videoBatchWordDownloadLink" href="#" target="_blank" style="display:none;font-size:16px;padding:12px 24px">📦 全部下载 Word</a>
+    <a class="download-link full-only" id="videoBatchImagesDownloadLink" href="#" target="_blank" style="display:none;font-size:16px;padding:12px 24px">📦 全部下载图片 ZIP</a>
+    <div id="videoBatchDownloads" style="display:none;width:100%;margin-top:10px;text-align:left;font-size:12px;color:#ddd"></div>
   </div>
   <div class="log-panel" id="videoLogPanel" style="max-height:120px;height:120px"></div>
 
@@ -342,7 +379,7 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #1
   document.body.prepend(errContainer);
 
   function showGlobalError(msg) {
-    errContainer.textContent = '[ChatScreen2PDF] ' + msg;
+    errContainer.textContent = '[Framescreen2PDF] ' + msg;
     errContainer.style.display = 'block';
     console.error(msg);
   }
@@ -362,31 +399,61 @@ function safeGet(id) {
   if (!el) {
     var msg = '关键元素 #' + id + ' 不存在，请确认页面加载完整';
     var bar = document.getElementById('global-error-bar');
-    if (bar) { bar.textContent = '[ChatScreen2PDF] ' + msg; bar.style.display = 'block'; }
+    if (bar) { bar.textContent = '[Framescreen2PDF] ' + msg; bar.style.display = 'block'; }
     console.error(msg);
   }
   return el;
 }
 
+window.APP_FEATURES = { word: true, video_image_zip: true, watermark_optional: true, watermark_forced: false, default_watermark: 'Framescreen2PDF', edition: 'full' };
+function applyAppConfig(d) {
+  var features = d.features || {};
+  window.APP_FEATURES = Object.assign(window.APP_FEATURES, features, { edition: d.edition || 'full' });
+  document.title = 'Framescreen2PDF — 视频/截图转 PDF/Word 工具';
+  var badge = document.getElementById('versionBadge');
+  if (badge) badge.textContent = 'Framescreen2PDF v' + (d.version || '1.0.0');
+  document.querySelectorAll('.word-only').forEach(function(el){ el.style.display = window.APP_FEATURES.word ? '' : 'none'; });
+  document.querySelectorAll('.full-only').forEach(function(el){ el.style.display = window.APP_FEATURES.video_image_zip ? '' : 'none'; });
+  var videoWordButton = document.getElementById('videoBtnGenerateWord');
+  if (videoWordButton && videoWordButton.disabled) videoWordButton.style.display = 'none';
+  var videoZipButton = document.getElementById('videoBtnImagesZip');
+  if (videoZipButton && videoZipButton.disabled) videoZipButton.style.display = 'none';
+  document.querySelectorAll('.lite-only').forEach(function(el){ el.style.display = 'none'; });
+  document.querySelectorAll('.watermark-control').forEach(function(el){
+    el.style.display = window.APP_FEATURES.watermark_forced ? 'none' : '';
+  });
+}
+function wordEnabled(){ return !!(window.APP_FEATURES && window.APP_FEATURES.word); }
+function imageZipEnabled(){ return !!(window.APP_FEATURES && window.APP_FEATURES.video_image_zip); }
+function watermarkEnabled(id){ return !!(window.APP_FEATURES.watermark_forced || (safeGet(id) && safeGet(id).checked)); }
+function watermarkValue(id){ return window.APP_FEATURES.watermark_forced ? window.APP_FEATURES.default_watermark : ((safeGet(id) && safeGet(id).value) || window.APP_FEATURES.default_watermark); }
+
 // ── 健康检查（不阻断初始化） ─────────────────────────────
 (function() {
   fetch('/api/health').then(function(r){return r.json();}).then(function(d){
     if(d.success){
-      console.log('ChatScreen2PDF WebUI initialized OK (backend v' + d.version + ')');
-      var banner = document.createElement('div');
-      banner.style.cssText = 'background:#2e7d32;color:#fff;text-align:center;padding:3px;font-size:12px';
-      banner.textContent = '前端已初始化 v' + d.version;
-      document.body.prepend(banner);
+      applyAppConfig(d);
+      console.log('Framescreen2PDF WebUI initialized OK (backend v' + d.version + ', ' + d.edition + ')');
     } else {
       showGlobalError('后端健康检查失败：后端响应异常');
     }
   }).catch(function(e){
     var msg = '后端健康检查失败：无法连接后端服务 (' + (e.message || '未知错误') + ')';
     var bar = document.getElementById('global-error-bar');
-    if (bar) { bar.textContent = '[ChatScreen2PDF] ' + msg; bar.style.display = 'block'; }
+    if (bar) { bar.textContent = '[Framescreen2PDF] ' + msg; bar.style.display = 'block'; }
     console.warn(msg);
     // 不阻断初始化
   });
+
+  var shutdownBtn = safeGet('shutdownBtn');
+  if (shutdownBtn) {
+    shutdownBtn.addEventListener('click', function(){
+      if (!confirm('确定要关闭 Framescreen2PDF 吗？关闭后需要重新双击程序启动。')) return;
+      fetch('/api/shutdown', {method:'POST', keepalive:true}).finally(function(){
+        document.body.innerHTML = '<div style="font-family:Microsoft YaHei,sans-serif;padding:40px;color:#333">Framescreen2PDF 已关闭，可以关闭这个浏览器页面。</div>';
+      });
+    });
+  }
 })();
 
 (function() {
@@ -394,6 +461,7 @@ function safeGet(id) {
   const fileInput = safeGet('fileInput');
   const btnSelect = safeGet('btnSelect');
   const btnGenerate = safeGet('btnGenerate');
+  const btnGenerateWord = safeGet('btnGenerateWord');
   const thumbGrid = safeGet('thumbGrid');
   const thumbPlaceholder = safeGet('thumbPlaceholder');
   const scaleMode = safeGet('scaleMode');
@@ -410,6 +478,7 @@ function safeGet(id) {
   const errorMsg = safeGet('errorMsg');
   const downloadArea = safeGet('downloadArea');
   const downloadLink = safeGet('downloadLink');
+  const wordDownloadLink = safeGet('wordDownloadLink');
 
   // 入口按钮
   const tabScreenshot = safeGet('tabScreenshot');
@@ -418,12 +487,14 @@ function safeGet(id) {
 
   // 隐藏的长截图区域
   const longSection = safeGet('longSection');
+  const videoSection = safeGet('videoSection');
 
   tabScreenshot.addEventListener('click', () => {
     tabScreenshot.classList.add('active');
     tabVideo.classList.remove('active');
     tabLong.classList.remove('active');
     longSection.style.display = 'none';
+    videoSection.style.display = 'none';
     safeGet('screenshotSection').style.display = 'block';
   });
 
@@ -433,6 +504,7 @@ function safeGet(id) {
     tabVideo.classList.remove('active');
     safeGet('screenshotSection').style.display = 'none';
     longSection.style.display = 'block';
+    videoSection.style.display = 'none';
   });
 
   tabVideo.addEventListener('click', () => {
@@ -441,13 +513,16 @@ function safeGet(id) {
     tabLong.classList.remove('active');
     safeGet('screenshotSection').style.display = 'none';
     longSection.style.display = 'none';
-    safeGet('videoSection').style.display = 'block';
+    videoSection.style.display = 'block';
   });
 
   // ── 状态 ──
   let selectedFiles = [];     // File 对象列表
   let polling = null;
   let jobRunning = false;
+  let currentJobId = null;
+  btnGenerateWord.disabled = true;
+  btnGenerateWord.style.display = 'none';
 
   // ── 选择图片 ──
   btnSelect.addEventListener('click', () => fileInput.click());
@@ -582,6 +657,31 @@ function safeGet(id) {
     progressText.textContent = '';
   }
 
+  let wordProgressTimer = null;
+  function startWordProgress(label) {
+    if (wordProgressTimer) clearInterval(wordProgressTimer);
+    progressWrap.style.display = 'block';
+    let pct = 0;
+    progressFill.style.width = '0%';
+    progressText.textContent = label + ' 0%';
+    wordProgressTimer = setInterval(() => {
+      pct = Math.min(pct + 5, 90);
+      progressFill.style.width = pct + '%';
+      progressText.textContent = label + ' ' + pct + '%';
+    }, 350);
+  }
+
+  function finishWordProgress(label) {
+    if (wordProgressTimer) { clearInterval(wordProgressTimer); wordProgressTimer = null; }
+    progressWrap.style.display = 'block';
+    progressFill.style.width = '100%';
+    progressText.textContent = label + ' 100%';
+  }
+
+  function stopWordProgress() {
+    if (wordProgressTimer) { clearInterval(wordProgressTimer); wordProgressTimer = null; }
+  }
+
   // ── 错误 ──
   function showError(msg) {
     errorMsg.textContent = msg;
@@ -599,19 +699,31 @@ function safeGet(id) {
     downloadLink.href = `/api/pdf/jobs/${jobId}/download`;
   }
 
+  function showWordDownload(jobId) {
+    downloadArea.classList.add('show');
+    wordDownloadLink.href = `/api/pdf/jobs/${jobId}/word/download`;
+    wordDownloadLink.style.display = 'inline-block';
+  }
+
   function hideDownload() {
     downloadArea.classList.remove('show');
     downloadLink.href = '#';
+    wordDownloadLink.href = '#';
+    wordDownloadLink.style.display = 'none';
   }
 
   // ── 清除任务 ──
   function clearJob() {
     if (polling) { clearInterval(polling); polling = null; }
+    stopWordProgress();
     jobRunning = false;
+    currentJobId = null;
     hideProgress();
     hideDownload();
     hideError();
     btnGenerate.disabled = false;
+    btnGenerateWord.disabled = selectedFiles.length === 0;
+    btnGenerateWord.style.display = 'none';
     btnGenerate.textContent = '生成 PDF';
     statusText.textContent = selectedFiles.length > 0 ? `已选择: ${selectedFiles.length} 张图片` : '请选择图片/视频';
   }
@@ -641,13 +753,18 @@ function safeGet(id) {
         if (data.status === 'done') {
           if (polling) { clearInterval(polling); polling = null; }
           jobRunning = false;
+          currentJobId = jobId;
           btnGenerate.disabled = false;
+          btnGenerateWord.disabled = false;
+          btnGenerateWord.style.display = wordEnabled() ? 'block' : 'none';
           btnGenerate.textContent = '生成 PDF';
           showDownload(jobId);
         } else if (data.status === 'error') {
           if (polling) { clearInterval(polling); polling = null; }
           jobRunning = false;
           btnGenerate.disabled = false;
+          btnGenerateWord.disabled = false;
+          btnGenerateWord.style.display = 'none';
           btnGenerate.textContent = '生成 PDF';
           showError('PDF 生成失败: ' + data.error);
         }
@@ -671,6 +788,7 @@ function safeGet(id) {
     clearLogs();
     jobRunning = true;
     btnGenerate.disabled = true;
+    btnGenerateWord.disabled = true;
     btnGenerate.textContent = '正在生成...';
     statusText.textContent = '正在上传...';
 
@@ -684,6 +802,8 @@ function safeGet(id) {
     formData.append('title', titleInput.value);
     formData.append('show_number', showNumber.checked ? 'true' : 'false');
     formData.append('show_page_number', showPageNumber.checked ? 'true' : 'false');
+    formData.append('enable_watermark', watermarkEnabled('enableWatermark') ? 'true' : 'false');
+    formData.append('watermark', watermarkValue('watermarkText'));
 
     try {
       const resp = await fetch('/api/pdf/jobs', { method: 'POST', body: formData });
@@ -692,6 +812,7 @@ function safeGet(id) {
         throw new Error(err.detail || '创建任务失败');
       }
       const data = await resp.json();
+      currentJobId = data.job_id;
       addLog('info', `已上传 ${data.total} 张图片`);
       addLog('info', `任务已创建: ${data.job_id}`);
 
@@ -701,8 +822,86 @@ function safeGet(id) {
       showError('上传失败: ' + e.message);
       jobRunning = false;
       btnGenerate.disabled = false;
+      btnGenerateWord.disabled = false;
       btnGenerate.textContent = '生成 PDF';
       statusText.textContent = '生成失败';
+    }
+  });
+
+  btnGenerateWord.addEventListener('click', async () => {
+    if (jobRunning) return;
+    if (!currentJobId) {
+      if (selectedFiles.length === 0) {
+        alert('请选择图片/视频');
+        return;
+      }
+    }
+
+    hideError();
+    hideDownload();
+    jobRunning = true;
+    btnGenerate.disabled = true;
+    btnGenerateWord.disabled = true;
+    btnGenerateWord.textContent = '正在生成 Word...';
+    statusText.textContent = currentJobId ? '正在生成 Word...' : '正在上传图片...';
+    startWordProgress(currentJobId ? '正在生成 Word' : '正在上传图片');
+
+    try {
+      if (!currentJobId) {
+        const uploadData = new FormData();
+        for (const f of selectedFiles) {
+          uploadData.append('files', f, f.name);
+        }
+        uploadData.append('scale_mode', scaleMode.value);
+        uploadData.append('layout', layoutSelect.value);
+        uploadData.append('direction', directionSelect.value);
+        uploadData.append('title', titleInput.value);
+        uploadData.append('show_number', showNumber.checked ? 'true' : 'false');
+        uploadData.append('show_page_number', showPageNumber.checked ? 'true' : 'false');
+        uploadData.append('enable_watermark', watermarkEnabled('enableWatermark') ? 'true' : 'false');
+        uploadData.append('watermark', watermarkValue('watermarkText'));
+        const uploadResp = await fetch('/api/pdf/jobs', { method: 'POST', body: uploadData });
+        if (!uploadResp.ok) {
+          const err = await uploadResp.json();
+          throw new Error(err.detail || '创建任务失败');
+        }
+        const upload = await uploadResp.json();
+        currentJobId = upload.job_id;
+        addLog('info', `已上传 ${upload.total} 张图片`);
+        while (true) {
+          const stateResp = await fetch(`/api/pdf/jobs/${currentJobId}`);
+          if (!stateResp.ok) throw new Error('查询状态失败');
+          const state = await stateResp.json();
+          setProgress(state.current, state.total);
+          progressText.textContent = `图片处理 ${state.current} / ${state.total}`;
+          if (state.status === 'done') break;
+          if (state.status === 'error') throw new Error(state.error || '图片处理失败');
+          await new Promise(resolve => setTimeout(resolve, 400));
+        }
+        startWordProgress('正在生成 Word');
+      }
+      const formData = new FormData();
+      formData.append('title', titleInput.value);
+      formData.append('show_number', showNumber.checked ? 'true' : 'false');
+      const resp = await fetch(`/api/pdf/jobs/${currentJobId}/word`, { method: 'POST', body: formData });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || '生成 Word 失败');
+      }
+      await resp.json();
+      finishWordProgress('Word 生成完成');
+      showWordDownload(currentJobId);
+      addLog('done', 'Word 生成成功');
+      statusText.textContent = 'Word 生成成功';
+    } catch (e) {
+      stopWordProgress();
+      showError('Word 生成失败: ' + e.message);
+      statusText.textContent = 'Word 生成失败';
+    } finally {
+      jobRunning = false;
+      btnGenerate.disabled = false;
+      btnGenerateWord.disabled = false;
+      btnGenerateWord.textContent = '生成 Word';
     }
   });
 })();
@@ -712,6 +911,7 @@ function safeGet(id) {
   const fileInput = safeGet('longFileInput');
   const btnSelect = safeGet('longBtnSelect');
   const btnGenerate = safeGet('longBtnGenerate');
+  const btnGenerateWord = safeGet('longBtnGenerateWord');
   const thumbGrid = safeGet('longThumbGrid');
   const placeholder = safeGet('longThumbPlaceholder');
   const sliceHeight = safeGet('sliceHeight');
@@ -724,11 +924,14 @@ function safeGet(id) {
   const errorMsg = safeGet('longErrorMsg');
   const downloadArea = safeGet('longDownloadArea');
   const downloadLink = safeGet('longDownloadLink');
+  const wordDownloadLink = safeGet('longWordDownloadLink');
 
   let jobId = null, longJobId = null;
   let polling = null;
   let jobRunning = false;
   let sliceNames = [];
+  btnGenerateWord.disabled = true;
+  btnGenerateWord.style.display = 'none';
 
   function addLog(stage, msg) {
     const p = document.createElement('div');
@@ -741,11 +944,34 @@ function safeGet(id) {
   function clearLogs() { logPanel.innerHTML = ''; }
   function showError(msg) { errorMsg.textContent = msg; errorMsg.classList.add('show'); }
   function hideError() { errorMsg.classList.remove('show'); }
-  function hideDownload() { downloadArea.classList.remove('show'); downloadLink.href = '#'; }
+  function hideDownload() { downloadArea.classList.remove('show'); downloadLink.href = '#'; wordDownloadLink.href = '#'; wordDownloadLink.style.display = 'none'; }
+  function showWordDownload() { downloadArea.classList.add('show'); wordDownloadLink.href = '/api/long/jobs/' + jobId + '/word/download'; wordDownloadLink.style.display = 'inline-block'; }
   function setProgress(cur, total) {
     if (total > 0) { progressWrap.style.display = 'block';
       progressFill.style.width = Math.round(cur/total*100)+'%';
       progressText.textContent = cur+'/'+total; }
+  }
+  let wordProgressTimer = null;
+  function startWordProgress(label) {
+    if (wordProgressTimer) clearInterval(wordProgressTimer);
+    progressWrap.style.display = 'block';
+    let pct = 0;
+    progressFill.style.width = '0%';
+    progressText.textContent = label + ' 0%';
+    wordProgressTimer = setInterval(() => {
+      pct = Math.min(pct + 5, 90);
+      progressFill.style.width = pct + '%';
+      progressText.textContent = label + ' ' + pct + '%';
+    }, 350);
+  }
+  function finishWordProgress(label) {
+    if (wordProgressTimer) { clearInterval(wordProgressTimer); wordProgressTimer = null; }
+    progressWrap.style.display = 'block';
+    progressFill.style.width = '100%';
+    progressText.textContent = label + ' 100%';
+  }
+  function stopWordProgress() {
+    if (wordProgressTimer) { clearInterval(wordProgressTimer); wordProgressTimer = null; }
   }
 
   btnSelect.addEventListener('click', () => fileInput.click());
@@ -756,6 +982,8 @@ function safeGet(id) {
     hideError(); hideDownload(); clearLogs();
     jobRunning = true;
     btnGenerate.disabled = true;
+    btnGenerateWord.disabled = true;
+    btnGenerateWord.style.display = 'none';
     statusText.textContent = '正在上传...';
     placeholder.style.display = 'none';
 
@@ -773,7 +1001,7 @@ function safeGet(id) {
         addLog('info', '已上传: ' + data.filename);
         pollLongJob(jobId);
       })
-      .catch(e => { showError('上传失败: ' + e.message); jobRunning = false; btnGenerate.disabled = false; });
+      .catch(e => { showError('上传失败: ' + e.message); jobRunning = false; btnGenerate.disabled = false; btnGenerateWord.disabled = false; });
   });
 
   function renderLongSlices(fnames, tempDir) {
@@ -851,6 +1079,8 @@ function safeGet(id) {
             if (polling) clearInterval(polling); polling = null;
             jobRunning = false;
             btnGenerate.disabled = false;
+            btnGenerateWord.disabled = false;
+            btnGenerateWord.style.display = wordEnabled() ? 'block' : 'none';
             btnGenerate.textContent = '生成 PDF';
             renderLongSlices(data.slices, '');
             addLog('done', '共 ' + data.total + ' 个切片，可删除/拖拽排序后生成 PDF');
@@ -858,6 +1088,8 @@ function safeGet(id) {
             if (polling) clearInterval(polling); polling = null;
             jobRunning = false;
             btnGenerate.disabled = false;
+            btnGenerateWord.disabled = false;
+            btnGenerateWord.style.display = 'none';
             showError('切片失败: ' + data.error);
           }
         });
@@ -868,6 +1100,7 @@ function safeGet(id) {
     if (jobRunning || !jobId) return;
     jobRunning = true;
     btnGenerate.disabled = true;
+    btnGenerateWord.disabled = true;
     btnGenerate.textContent = '正在生成 PDF...';
     hideError(); hideDownload();
 
@@ -883,6 +1116,7 @@ function safeGet(id) {
       formData.append('scale_mode', 'fit');
       formData.append('show_number', safeGet('longShowNumber').checked ? 'true' : 'false');
       formData.append('show_page_number', safeGet('longShowPageNumber').checked ? 'true' : 'false');
+      formData.append('watermark', watermarkEnabled('longEnableWatermark') ? watermarkValue('longWatermarkText') : '');
       return fetch('/api/long/jobs/' + jobId + '/pdf', { method: 'POST', body: formData });
     })
       .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail); }))
@@ -893,25 +1127,121 @@ function safeGet(id) {
           downloadArea.classList.add('show');
           downloadLink.href = '/api/long/jobs/' + jobId + '/download';
           btnGenerate.disabled = false;
+          btnGenerateWord.disabled = false;
           btnGenerate.textContent = '重新生成 PDF';
         } else {
           showError('生成失败');
         }
         jobRunning = false;
       })
-      .catch(e => { showError('生成失败: ' + e.message); jobRunning = false; btnGenerate.disabled = false; });
+      .catch(e => { showError('生成失败: ' + e.message); jobRunning = false; btnGenerate.disabled = false; btnGenerateWord.disabled = false; });
+  });
+
+  btnGenerateWord.addEventListener('click', () => {
+    if (jobRunning || !jobId) return;
+    jobRunning = true;
+    btnGenerateWord.disabled = true;
+    btnGenerateWord.textContent = '正在生成 Word...';
+    hideError();
+    startWordProgress('正在生成 Word');
+
+    fetch('/api/long/jobs/' + jobId + '/slices', {
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({filenames: sliceNames})
+    }).then(() => {
+      const formData = new FormData();
+      formData.append('show_number', safeGet('longShowNumber').checked ? 'true' : 'false');
+      return fetch('/api/long/jobs/' + jobId + '/word', { method: 'POST', body: formData });
+    })
+      .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail); }))
+      .then(data => {
+        if (data.status === 'word_done') {
+          finishWordProgress('Word 生成完成');
+          addLog('done', 'Word 生成成功');
+          statusText.textContent = 'Word 生成成功';
+          showWordDownload();
+        } else {
+          showError('Word 生成失败');
+        }
+        jobRunning = false;
+        btnGenerateWord.disabled = false;
+        btnGenerateWord.textContent = '生成 Word';
+      })
+      .catch(e => { stopWordProgress(); showError('Word 生成失败: ' + e.message); jobRunning = false; btnGenerateWord.disabled = false; btnGenerateWord.textContent = '生成 Word'; });
   });
 })();
 
 // ── 视频处理（选择→参考帧→框选→开始转换）──
 (function(){
-var FI=safeGet('videoFileInput'),BS=safeGet('videoBtnSelect'),BG=safeGet('videoBtnGenerate'),LR=safeGet('videoBtnLoadRef'),CR=safeGet('videoBtnClearRegion'),TG=safeGet('videoThumbGrid'),PH=safeGet('videoThumbPlaceholder'),ST=safeGet('videoStatusText'),PW=safeGet('videoProgressWrap'),PF=safeGet('videoProgressFill'),PT=safeGet('videoProgressText'),LP=safeGet('videoLogPanel'),EM=safeGet('videoErrorMsg'),DA=safeGet('videoDownloadArea'),DL=safeGet('videoDownloadLink'),OS=safeGet('ocrStatus'),RC=safeGet('regionCoords'),RF=safeGet('refFrame'),RCA=safeGet('refCanvas'),EW=safeGet('excludeWords'),FNm=safeGet('videoFileName'),FS=safeGet('videoFileSize'),TS=safeGet('thumbStats'),OC=safeGet('ocrSection'),S2=safeGet('step2'),S3=safeGet('step3'),S4=safeGet('step4'),S5=safeGet('step5'),CF=safeGet('videoBtnConfirmRegion'),UF=safeGet('videoBtnUseFull'),TZ=safeGet('thumbSizeSelect');
-var sf=null,dj=null,J=null,PO=null,ST8='idle',FN=[],OR=null,RW=0,RH=0,DR=false,DSX=0,DSY=0,DD=false;
+var FI=safeGet('videoFileInput'),BS=safeGet('videoBtnSelect'),BG=safeGet('videoBtnGenerate'),BW=safeGet('videoBtnGenerateWord'),BZ=safeGet('videoBtnImagesZip'),LR=safeGet('videoBtnLoadRef'),CR=safeGet('videoBtnClearRegion'),TG=safeGet('videoThumbGrid'),PH=safeGet('videoThumbPlaceholder'),ST=safeGet('videoStatusText'),PW=safeGet('videoProgressWrap'),PF=safeGet('videoProgressFill'),PT=safeGet('videoProgressText'),LP=safeGet('videoLogPanel'),EM=safeGet('videoErrorMsg'),DA=safeGet('videoDownloadArea'),DL=safeGet('videoDownloadLink'),DWL=safeGet('videoWordDownloadLink'),IZL=safeGet('videoImagesZipDownloadLink'),BDL=safeGet('videoBatchDownloadLink'),BWDL=safeGet('videoBatchWordDownloadLink'),BIDL=safeGet('videoBatchImagesDownloadLink'),BD=safeGet('videoBatchDownloads'),OS=safeGet('ocrStatus'),RC=safeGet('regionCoords'),RF=safeGet('refFrame'),RCA=safeGet('refCanvas'),EW=safeGet('excludeWords'),FNm=safeGet('videoFileName'),FS=safeGet('videoFileSize'),TS=safeGet('thumbStats'),OC=safeGet('ocrSection'),S2=safeGet('step2'),S3=safeGet('step3'),S4=safeGet('step4'),S5=safeGet('step5'),CF=safeGet('videoBtnConfirmRegion'),UF=safeGet('videoBtnUseFull'),TZ=safeGet('thumbSizeSelect'),ED=safeGet('enableDedup'),GD=safeGet('globalDedup'),EO=safeGet('enableOcrAssist');
+var sf=null,batchFiles=[],batchResults=[],dj=null,J=null,PO=null,ST8='idle',FN=[],OR=null,RW=0,RH=0,DR=false,DSX=0,DSY=0,DD=false,PDFD=false,JR=false;
 
-function al(s,m){var p=document.createElement('div');p.className='line-'+s;p.textContent=m;LP.appendChild(p);LP.scrollTop=LP.scrollHeight;}
+function nowText(){var d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');}
+function al(s,m){var p=document.createElement('div');p.className='line-'+s;p.textContent='['+nowText()+'] '+m;LP.appendChild(p);LP.scrollTop=LP.scrollHeight;}
 function cl(){LP.innerHTML='';}function se(m){EM.textContent=m;EM.classList.add('show');}function he(){EM.classList.remove('show');}
-function hd(){DA.classList.remove('show');DL.href='#';}
+function hd(){DA.classList.remove('show');DL.href='#';DWL.href='#';DWL.style.display='none';IZL.href='#';IZL.style.display='none';BDL.href='#';BDL.style.display='none';BWDL.href='#';BWDL.style.display='none';BIDL.href='#';BIDL.style.display='none';BD.innerHTML='';BD.style.display='none';}
 function sp(c,t){if(t>0){PW.style.display='block';PF.style.width=Math.round(c/t*100)+'%';PT.textContent=c+'/'+t;}}
+var FP=null,FPCT=0;
+function stopSoftProgress(){if(FP){clearInterval(FP);FP=null;}}
+function softProgress(label,max){
+  stopSoftProgress();PW.style.display='block';FPCT=0;PT.textContent=label;PF.style.width='0%';
+  FP=setInterval(function(){FPCT=Math.min(FPCT+3,max||85);PF.style.width=FPCT+'%';PT.textContent=label+' '+FPCT+'%';},600);
+}
+function delay(ms){return new Promise(function(resolve){setTimeout(resolve,ms);});}
+function videoFormData(file){
+  var fd=new FormData();fd.append('file',file);
+  fd.append('interval',safeGet('videoInterval').value);
+  fd.append('blur_threshold',safeGet('blurThreshold').value);
+  fd.append('dedup_threshold',safeGet('dedupThreshold').value);
+  fd.append('dedup_enabled',ED&&ED.checked?'true':'false');
+  fd.append('global_dedup',GD&&GD.checked?'true':'false');
+  fd.append('enable_ocr',EO&&EO.checked?'true':'false');
+  if(OR){fd.append('ocr_region_x',OR.x);fd.append('ocr_region_y',OR.y);fd.append('ocr_region_w',OR.width);fd.append('ocr_region_h',OR.height);}
+  fd.append('exclude_words',EW.value||'');
+  return fd;
+}
+function videoPdfFormData(){
+  var fd=new FormData();fd.append('layout',safeGet('videoLayout').value);
+  fd.append('show_number',safeGet('videoShowNumber').checked?'true':'false');
+  fd.append('show_page_number','false');
+  fd.append('watermark',watermarkEnabled('videoEnableWatermark')?watermarkValue('videoWatermarkText'):'');
+  return fd;
+}
+if(ED&&GD){
+  ED.addEventListener('change',function(){
+    GD.disabled=!ED.checked;
+    if(!ED.checked){GD.checked=false;}
+  });
+}
+function updateOcrStatus(){
+  var tip=safeGet('ocrInstallTip');
+  if(!EO||!EO.checked){
+    OS.textContent='';
+    if(tip)tip.style.display='none';
+    return;
+  }
+  OS.textContent='正在检测 OCR...';
+  OS.style.color='#aaa';
+  fetch('/api/ocr/status').then(function(r){return r.json();}).then(function(d){
+    if(!EO.checked)return;
+    if(d.installed){
+      OS.textContent='OCR辅助筛选可用';
+      OS.style.color='#88ff88';
+      if(tip)tip.style.display='none';
+    }else{
+      OS.textContent='未检测到 OCR';
+      OS.style.color='#ffa500';
+      if(tip)tip.style.display='block';
+    }
+  }).catch(function(){
+    if(!EO.checked)return;
+    OS.textContent='OCR 检测失败';
+    OS.style.color='#ffa500';
+    if(tip)tip.style.display='block';
+  });
+}
+if(EO){EO.addEventListener('change',updateOcrStatus);}
 
 // 重置所有状态
 function lockTabs(lock){
@@ -921,10 +1251,14 @@ function lockTabs(lock){
   }
 }
 function resetAll(){
-  cl();if(PO)clearInterval(PO);PO=null;J=null;dj=null;OR=null;RW=0;RH=0;FN=[];DD=false;ST8='idle';
+  cl();stopSoftProgress();if(PO)clearInterval(PO);PO=null;J=null;dj=null;OR=null;RW=0;RH=0;FN=[];batchFiles=[];batchResults=[];DD=false;PDFD=false;ST8='idle';
   TG.innerHTML='';PH.style.display='';PH.textContent='请选择 MP4 视频';
   OC.style.display='none';safeGet('refFrameContainer').style.display='none';
   RC.textContent='未选择';OS.textContent='';hd();he();sp(0,0);PW.style.display='none';
+  BG.disabled=false;BG.textContent='开始转换';BG.onclick=runJob;
+  BW.disabled=true;BW.textContent='生成 Word';BW.style.display='none';
+  BZ.disabled=true;BZ.textContent='下载图片 ZIP';BZ.style.display='none';
+  var tip=safeGet('ocrInstallTip');if(tip)tip.style.display='none';
   ST.textContent='请选择 MP4 视频';al('info','已重置，请选择新视频');
 }
 
@@ -943,10 +1277,20 @@ FI.addEventListener('change',function(){
   if(!FI.files||!FI.files[0]){resetAll();return;}
   // 清空旧结果
   resetAll();
-  sf=FI.files[0];FI.value='';
-  FNm.textContent=sf.name;FS.textContent='('+Math.round(sf.size/1024/1024*10)/10+' MB)';
-  ST8='selected';ST.textContent='已选择视频，请设置参数后点击开始转换';
-  stepHighlight(1);OC.style.display='block';al('info','已选择: '+sf.name);
+  batchFiles=Array.prototype.slice.call(FI.files);sf=batchFiles[0];FI.value='';
+  var totalSize=batchFiles.reduce(function(sum,f){return sum+f.size;},0);
+  if(batchFiles.length>1){
+    FNm.textContent='已选择 '+batchFiles.length+' 个视频';FS.textContent='('+Math.round(totalSize/1024/1024*10)/10+' MB)';
+    BG.disabled=false;BG.textContent='开始批量转换';BG.onclick=runBatchJobs;
+    ST8='batch_selected';ST.textContent='已选择 '+batchFiles.length+' 个视频，将按当前参数自动逐个生成 PDF';
+    PH.textContent='批量模式会自动转换，不显示逐帧校对';
+    stepHighlight(1);OC.style.display='block';al('info','已选择批量视频: '+batchFiles.length+' 个');
+  }else{
+    FNm.textContent=sf.name;FS.textContent='('+Math.round(sf.size/1024/1024*10)/10+' MB)';
+    BG.disabled=false;BG.textContent='开始转换';BG.onclick=runJob;
+    ST8='selected';ST.textContent='已选择视频，请设置参数后点击开始转换';
+    stepHighlight(1);OC.style.display='block';al('info','已选择: '+sf.name);
+  }
 });
 
 // 加载参考帧
@@ -983,12 +1327,21 @@ function dr(){
 }
 CF.addEventListener('click',function(){if(OR){stepHighlight(3);al('info','已确认聊天区域: '+JSON.stringify(OR));}});
 CR.addEventListener('click',function(){OR=null;RC.textContent='未选择';alignCanvas();var c=RCA.getContext('2d');c.clearRect(0,0,RCA.width,RCA.height);DD=false;stepHighlight(2);});
-UF.addEventListener('click',function(){OR=null;RC.textContent='使用全图';alignCanvas();var c=RCA.getContext('2d');c.clearRect(0,0,RCA.width,RCA.height);stepHighlight(3);al('info','将使用全图分析');DD=true;});
+UF.addEventListener('click',function(){OR={x:0,y:0,width:RW,height:RH};RC.textContent='使用全图';alignCanvas();var c=RCA.getContext('2d');c.clearRect(0,0,RCA.width,RCA.height);stepHighlight(3);al('info','将使用全图分析');DD=true;});
 
 // 渲染帧
 function rv(fn,dt){
   FN=fn;TG.innerHTML='';PH.style.display='none';
-  if(dt&&dt.length>0){var a=dt[0].ocr_available;OS.textContent=a?'OCR 已启用，使用文本连续性判断':'OCR 未安装，使用图像去重';OS.style.color=a?'#88ff88':'#ffa500';var tip=safeGet('ocrInstallTip');if(tip)tip.style.display=a?'none':'block';}
+  var tip=safeGet('ocrInstallTip');
+  if(EO&&EO.checked&&dt&&dt.length>0){
+    var a=dt[0].ocr_available;
+    OS.textContent=a?'OCR辅助筛选已启用':'未检测到 OCR';
+    OS.style.color=a?'#88ff88':'#ffa500';
+    if(tip)tip.style.display=a?'none':'block';
+  }else{
+    OS.textContent='';
+    if(tip)tip.style.display='none';
+  }
   TS.textContent='共保留 '+fn.length+' 帧';
   var sz=parseInt(TZ.value);
   fn.forEach(function(n,i){
@@ -1003,7 +1356,7 @@ function rv(fn,dt){
     db.title='删除';db.addEventListener('click',function(){FN.splice(i,1);rv(FN,dt);al('info','已删除');TS.textContent='共保留 '+FN.length+' 帧';});
     var nm=document.createElement('div');nm.className='name';nm.style.fontSize='10px';nm.textContent='#'+(i+1);
     dv.appendChild(nl);dv.appendChild(db);dv.appendChild(im);dv.appendChild(nm);
-    if(d&&d.reason){var r=document.createElement('div');r.className='frame-reason '+(d.status||'');var t=d.reason;if(d.warning)t='⚠ '+d.warning;if(d.ocr_text_count>0)t+=' ['+d.ocr_text_count+'行]';r.textContent=t;dv.appendChild(r);}
+    if(d&&(d.reason||d.warning||d.ocr_text_count>0)){var r=document.createElement('div');r.className='frame-reason '+(d.status||'');var t=d.reason||'';if(d.warning)t='⚠ '+d.warning;if(d.ocr_text_count>0)t+=(t?' ':'')+'['+d.ocr_text_count+'行]';r.textContent=t;dv.appendChild(r);}
     TG.appendChild(dv);
   });
 }
@@ -1013,47 +1366,191 @@ function runJob(){
   if(ST8==='processing_video'||!sf)return;
   // 检查是否框选了区域
   if(!DD){
-    if(!confirm('未选择聊天区域，将使用全图分析。建议只框选聊天内容区域，是否继续？')){
+    if(!confirm('未选择区域，将使用全图分析，是否继续？')){
       stepHighlight(2);return;
     }
     DD=true;
   }
-  ST8='processing_video';JR=true;BG.disabled=true;BG.textContent='处理中...';he();hd();cl();J=null;stepHighlight(5);lockTabs(true);
-  var fd=new FormData();fd.append('file',sf);
-  fd.append('interval',safeGet('videoInterval').value);
-  fd.append('blur_threshold',safeGet('blurThreshold').value);
-  fd.append('dedup_threshold',safeGet('dedupThreshold').value);
-  fd.append('global_dedup',safeGet('globalDedup').checked?'true':'false');
-  if(OR){fd.append('ocr_region_x',OR.x);fd.append('ocr_region_y',OR.y);fd.append('ocr_region_w',OR.width);fd.append('ocr_region_h',OR.height);}
-  fd.append('exclude_words',EW.value||'');
+  ST8='processing_video';JR=true;BG.disabled=true;BG.textContent='处理中...';BW.disabled=true;BZ.disabled=true;he();hd();cl();J=null;stepHighlight(5);lockTabs(true);
+  softProgress('正在上传/抽帧',85);
+  var fd=videoFormData(sf);
   fetch('/api/video/jobs',{method:'POST',body:fd}).then(function(r){return r.ok?r.json():r.json().then(function(e){throw new Error(e.detail);});})
   .then(function(d){J=d.job_id;al('info','开始处理: '+d.filename);pv(d.job_id);})
-  .catch(function(e){se('处理失败: '+e.message);ST8='selected';JR=false;BG.disabled=false;BG.textContent='开始转换';lockTabs(false);});
+  .catch(function(e){stopSoftProgress();se('处理失败: '+e.message);ST8='selected';JR=false;BG.disabled=false;BG.textContent='开始转换';lockTabs(false);});
 }
 
 function pv(id){
   if(PO)clearInterval(PO);
   PO=setInterval(function(){fetch('/api/video/jobs/'+id).then(function(r){return r.json();}).then(function(d){
     sp(d.current,d.total);ST.textContent=d.status==='processing'?'正在处理 '+d.current+'/'+d.total:'';
+    if(d.total>0){stopSoftProgress();}
     if(d.logs&&d.logs.length){LP.innerHTML='';for(var i=0;i<d.logs.length;i++)al(d.logs[i][0],d.logs[i][1]);}
     if(d.status==='done'){
-      if(PO)clearInterval(PO);PO=null;ST8='review_ready';JR=false;BG.disabled=false;BG.textContent='生成 PDF';lockTabs(false);
+      stopSoftProgress();if(PO)clearInterval(PO);PO=null;ST8='review_ready';JR=false;BG.disabled=false;BW.disabled=false;BW.style.display=wordEnabled()?'block':'none';BZ.disabled=false;BZ.style.display=imageZipEnabled()?'block':'none';BG.textContent='生成 PDF';lockTabs(false);
       BG.onclick=genPdf;rv(d.frames,d.frame_details);al('done','保留 '+d.total+' 帧');ST.textContent='完成 '+d.total+' 帧，可删除/排序后生成 PDF';
       stepHighlight(4);sp(1,1);
-    }else if(d.status==='error'){if(PO)clearInterval(PO);PO=null;ST8='failed';JR=false;BG.disabled=false;BG.textContent='重新处理';lockTabs(false);BG.onclick=runJob;se('失败: '+d.error);}
+    }else if(d.status==='error'){stopSoftProgress();if(PO)clearInterval(PO);PO=null;ST8='failed';JR=false;BG.disabled=false;BG.textContent='重新处理';lockTabs(false);BG.onclick=runJob;se('失败: '+d.error);}
   });},500);
 }
 
+async function waitVideoJob(id){
+  while(true){
+    var r=await fetch('/api/video/jobs/'+id);
+    var d=await r.json();
+    if(d.status==='done'||d.status==='error')return d;
+    if(d.total>0){stopSoftProgress();sp(d.current,d.total);}
+    await delay(500);
+  }
+}
+
+function showBatchDownloads(){
+  var ok=batchResults.filter(function(x){return x.status==='pdf_done';});
+  var wordOk=batchResults.filter(function(x){return x.word_done;});
+  var imagesOk=batchResults.filter(function(x){return x.images_done;});
+  DA.classList.add('show');
+  DL.style.display='none';DWL.style.display='none';IZL.style.display='none';
+  BD.innerHTML='';
+  BD.style.display='block';
+  var title=document.createElement('div');
+  title.style.cssText='margin-bottom:8px;color:#88ff88;font-weight:bold';
+  title.textContent='批量转换完成：PDF '+ok.length+' 个 / Word '+wordOk.length+' 个 / 图片ZIP '+imagesOk.length+' 个 / 共 '+batchResults.length+' 个';
+  BD.appendChild(title);
+  batchResults.forEach(function(item,idx){
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:8px;justify-content:space-between;padding:6px 0;border-top:1px solid rgba(255,255,255,0.08)';
+    var name=document.createElement('span');
+    name.textContent=(idx+1)+'. '+item.name+(item.status==='pdf_done'?'':'：'+(item.error||'失败'));
+    row.appendChild(name);
+    var links=document.createElement('div');
+    links.style.cssText='display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end';
+    if(item.status==='pdf_done'){
+      var a=document.createElement('a');
+      a.className='download-link';
+      a.href='/api/video/jobs/'+item.job_id+'/download';
+      a.target='_blank';
+      a.style.cssText='font-size:12px;padding:5px 10px';
+      a.textContent='下载 PDF';
+      links.appendChild(a);
+    }
+    if(item.word_done){
+      var wa=document.createElement('a');
+      wa.className='download-link word-only';
+      wa.href='/api/video/jobs/'+item.job_id+'/word/download';
+      wa.target='_blank';
+      wa.style.cssText='font-size:12px;padding:5px 10px';
+      wa.textContent='下载 Word';
+      links.appendChild(wa);
+    }
+    if(item.images_done){
+      var ia=document.createElement('a');
+      ia.className='download-link full-only';
+      ia.href='/api/video/jobs/'+item.job_id+'/images-zip/download';
+      ia.target='_blank';
+      ia.style.cssText='font-size:12px;padding:5px 10px';
+      ia.textContent='下载图片 ZIP';
+      links.appendChild(ia);
+    }
+    row.appendChild(links);
+    BD.appendChild(row);
+  });
+  function bindBatchLink(el,kind,label,items){
+    if(items.length<=0){el.style.display='none';return;}
+    el.href='#';
+    el.style.display='inline-block';
+    el.onclick=function(e){
+      e.preventDefault();
+      fetch('/api/video/batch/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:kind,job_ids:items.map(function(x){return x.job_id;})})})
+      .then(function(r){if(!r.ok)return r.json().then(function(e){throw new Error(e.detail||'打包失败');});return r.blob();})
+      .then(function(blob){
+        var url=URL.createObjectURL(blob);
+        var a=document.createElement('a');a.href=url;a.download='批量视频转换_'+label+'.zip';document.body.appendChild(a);a.click();a.remove();
+        setTimeout(function(){URL.revokeObjectURL(url);},1000);
+      })
+      .catch(function(err){se('全部下载失败: '+err.message);});
+    };
+  }
+  if(ok.length>0){
+    bindBatchLink(BDL,'pdf','PDF',ok);
+  }
+  if(wordEnabled())bindBatchLink(BWDL,'word','Word',wordOk);
+  if(imageZipEnabled())bindBatchLink(BIDL,'images','图片',imagesOk);
+}
+
+async function runBatchJobs(){
+  if(JR||batchFiles.length<2)return;
+  if(!DD){
+    if(!confirm('未选择区域，将对本批视频使用全图分析，是否继续？')){stepHighlight(2);return;}
+    DD=true;
+  }
+  ST8='batch_processing';JR=true;BG.disabled=true;BW.disabled=true;BZ.disabled=true;he();hd();cl();FN=[];batchResults=[];stepHighlight(5);lockTabs(true);
+  TG.innerHTML='';PH.style.display='';PH.textContent='批量转换进行中...';
+  PW.style.display='block';PF.style.width='0%';PT.textContent='0/'+batchFiles.length;
+  try{
+    for(var i=0;i<batchFiles.length;i++){
+      var file=batchFiles[i];
+      ST.textContent='批量转换 '+(i+1)+'/'+batchFiles.length+'：'+file.name;
+      PF.style.width=Math.round(i/batchFiles.length*100)+'%';PT.textContent=i+'/'+batchFiles.length;
+      al('info','开始处理 ['+(i+1)+'/'+batchFiles.length+']: '+file.name);
+      try{
+        var createResp=await fetch('/api/video/jobs',{method:'POST',body:videoFormData(file)});
+        if(!createResp.ok){var ce=await createResp.json();throw new Error(ce.detail||'创建任务失败');}
+        var created=await createResp.json();
+        var done=await waitVideoJob(created.job_id);
+        if(done.status!=='done')throw new Error(done.error||'视频处理失败');
+        var pdfResp=await fetch('/api/video/jobs/'+created.job_id+'/pdf',{method:'POST',body:videoPdfFormData()});
+        if(!pdfResp.ok){var pe=await pdfResp.json();throw new Error(pe.detail||'PDF 生成失败');}
+        var pdf=await pdfResp.json();
+        if(pdf.status!=='pdf_done')throw new Error('PDF 生成失败');
+        var item={name:file.name,job_id:created.job_id,status:'pdf_done',word_done:false,images_done:false};
+        if(wordEnabled()){
+          try{
+            al('info','正在生成 Word ['+(i+1)+'/'+batchFiles.length+']: '+file.name);
+            var wfd=new FormData();wfd.append('show_number',safeGet('videoShowNumber').checked?'true':'false');
+            var wordResp=await fetch('/api/video/jobs/'+created.job_id+'/word',{method:'POST',body:wfd});
+            if(wordResp.ok){
+              var word=await wordResp.json();
+              item.word_done=word.status==='word_done';
+            }else{
+              var we=await wordResp.json();al('error','Word 失败: '+file.name+' - '+(we.detail||'生成失败'));
+            }
+          }catch(wordErr){al('error','Word 失败: '+file.name+' - '+wordErr.message);}
+        }
+        if(imageZipEnabled()){
+          try{
+            al('info','正在打包图片 ['+(i+1)+'/'+batchFiles.length+']: '+file.name);
+            var imageResp=await fetch('/api/video/jobs/'+created.job_id+'/images-zip',{method:'POST'});
+            if(imageResp.ok){
+              var images=await imageResp.json();
+              item.images_done=images.status==='images_zip_done';
+            }else{
+              var ie=await imageResp.json();al('error','图片 ZIP 失败: '+file.name+' - '+(ie.detail||'打包失败'));
+            }
+          }catch(imageErr){al('error','图片 ZIP 失败: '+file.name+' - '+imageErr.message);}
+        }
+        batchResults.push(item);
+        al('done','完成: '+file.name);
+      }catch(err){
+        batchResults.push({name:file.name,job_id:'',status:'error',error:err.message});
+        al('error','失败: '+file.name+' - '+err.message);
+      }
+      PF.style.width=Math.round((i+1)/batchFiles.length*100)+'%';PT.textContent=(i+1)+'/'+batchFiles.length;
+    }
+    ST8='batch_done';JR=false;BG.disabled=false;BG.textContent='选择下一批视频';BG.onclick=function(){resetAll();FI.click();};lockTabs(false);
+    ST.textContent='批量转换完成';
+    showBatchDownloads();
+  }catch(e){
+    ST8='batch_selected';JR=false;BG.disabled=false;BG.textContent='重新批量转换';lockTabs(false);se('批量转换失败: '+e.message);
+  }
+}
+
 function genPdf(){
-  if(JR||!J||(ST8!=='review_ready'&&ST8!=='pdf_ready'))return;
+  if(JR||!J||(ST8!=='review_ready'&&ST8!=='pdf_ready'&&ST8!=='word_ready'&&ST8!=='zip_ready'))return;
   ST8='exporting_pdf';JR=true;BG.disabled=true;BG.textContent='正在生成 PDF...';he();hd();
   sp(0,1);PT.textContent='0%';PF.style.width='0%';
   var pi=setInterval(function(){PF.style.width=Math.min(parseInt(PF.style.width)+5,90)+'%';PT.textContent=PF.style.width;},1000);
 
   fetch('/api/video/jobs/'+J+'/frames',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({filenames:FN})})
-  .then(function(){var fd=new FormData();fd.append('layout',safeGet('videoLayout').value);
-    fd.append('show_number',safeGet('videoShowNumber').checked?'true':'false');fd.append('show_page_number','false');
-    return fetch('/api/video/jobs/'+J+'/pdf',{method:'POST',body:fd});})
+  .then(function(){return fetch('/api/video/jobs/'+J+'/pdf',{method:'POST',body:videoPdfFormData()});})
   .then(function(r){
     if(!r.ok)return r.json().then(function(e){throw new Error(e.detail||'生成失败');});
     return r.json();
@@ -1061,16 +1558,70 @@ function genPdf(){
   .then(function(d){
     if(d.status==='pdf_done'){
       clearInterval(pi);PF.style.width='100%';PT.textContent='100%';
-      ST8='pdf_ready';JR=false;al('done','PDF 生成成功');ST.textContent='PDF 已就绪 — 点击下载按钮获取';
+      ST8='pdf_ready';JR=false;PDFD=false;al('done','PDF 生成成功');ST.textContent='PDF 已就绪 — 点击下载按钮获取';
       DA.classList.add('show');DL.href='/api/video/jobs/'+J+'/download';
-      BG.disabled=false;BG.textContent='📥 下载 PDF';BG.onclick=function(){window.open('/api/video/jobs/'+J+'/download','_blank');};
+      DL.onclick=function(){PDFD=true;};
+      BG.disabled=false;BG.textContent='选择下一个视频';BG.onclick=function(){
+        if(!PDFD && !confirm('当前 PDF 已生成但还没有确认下载。继续选择下一个视频会清空当前结果，是否继续？'))return;
+        resetAll();FI.click();
+      };
     }else{se('PDF 生成失败');ST8='review_ready';JR=false;BG.disabled=false;}
   })
   .catch(function(e){clearInterval(pi);se('PDF 失败: '+e.message);ST8='review_ready';JR=false;BG.disabled=false;BG.textContent='重新生成 PDF';});
 }
 
+function genWord(){
+  if(JR||!J||(ST8!=='review_ready'&&ST8!=='pdf_ready'&&ST8!=='word_ready'&&ST8!=='zip_ready'))return;
+  ST8='exporting_word';JR=true;BW.disabled=true;BW.textContent='正在生成 Word...';he();
+  sp(0,1);PT.textContent='正在生成 Word 0%';PF.style.width='0%';
+  var wi=setInterval(function(){PF.style.width=Math.min(parseInt(PF.style.width)+5,90)+'%';PT.textContent='正在生成 Word '+PF.style.width;},350);
+  fetch('/api/video/jobs/'+J+'/frames',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({filenames:FN})})
+  .then(function(){
+    var fd=new FormData();
+    fd.append('show_number',safeGet('videoShowNumber').checked?'true':'false');
+    return fetch('/api/video/jobs/'+J+'/word',{method:'POST',body:fd});
+  })
+  .then(function(r){
+    if(!r.ok)return r.json().then(function(e){throw new Error(e.detail||'生成失败');});
+    return r.json();
+  })
+  .then(function(d){
+    if(d.status==='word_done'){
+      clearInterval(wi);PF.style.width='100%';PT.textContent='Word 生成完成 100%';
+      ST8='word_ready';JR=false;al('done','Word 生成成功');ST.textContent='Word 已就绪，点击下载按钮获取';
+      DA.classList.add('show');DWL.href='/api/video/jobs/'+J+'/word/download';DWL.style.display='inline-block';
+      BW.disabled=false;BW.textContent='重新生成 Word';BG.disabled=false;
+    }else{clearInterval(wi);se('Word 生成失败');ST8='review_ready';JR=false;BW.disabled=false;}
+  })
+  .catch(function(e){clearInterval(wi);se('Word 失败: '+e.message);ST8='review_ready';JR=false;BW.disabled=false;BW.textContent='重新生成 Word';});
+}
+
+function genImagesZip(){
+  if(JR||!J||(ST8!=='review_ready'&&ST8!=='pdf_ready'&&ST8!=='word_ready'&&ST8!=='zip_ready'))return;
+  ST8='exporting_zip';JR=true;BZ.disabled=true;BZ.textContent='正在打包图片...';he();
+  sp(0,1);PT.textContent='正在打包图片 0%';PF.style.width='0%';
+  var zi=setInterval(function(){PF.style.width=Math.min(parseInt(PF.style.width)+8,90)+'%';PT.textContent='正在打包图片 '+PF.style.width;},300);
+  fetch('/api/video/jobs/'+J+'/frames',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({filenames:FN})})
+  .then(function(){return fetch('/api/video/jobs/'+J+'/images-zip',{method:'POST'});})
+  .then(function(r){
+    if(!r.ok)return r.json().then(function(e){throw new Error(e.detail||'打包失败');});
+    return r.json();
+  })
+  .then(function(d){
+    if(d.status==='images_zip_done'){
+      clearInterval(zi);PF.style.width='100%';PT.textContent='图片 ZIP 生成完成 100%';
+      ST8='zip_ready';JR=false;al('done','图片 ZIP 生成成功');ST.textContent='图片 ZIP 已就绪，点击下载按钮获取';
+      DA.classList.add('show');IZL.href='/api/video/jobs/'+J+'/images-zip/download';IZL.style.display='inline-block';
+      BZ.disabled=false;BZ.textContent='重新打包图片 ZIP';BG.disabled=false;
+    }else{clearInterval(zi);se('图片 ZIP 生成失败');ST8='review_ready';JR=false;BZ.disabled=false;}
+  })
+  .catch(function(e){clearInterval(zi);se('图片 ZIP 失败: '+e.message);ST8='review_ready';JR=false;BZ.disabled=false;BZ.textContent='重新打包图片 ZIP';});
+}
+
 // 初始化
 BG.onclick=runJob;
+BW.onclick=genWord;
+BZ.onclick=genImagesZip;
 TZ.addEventListener('change',function(){if(FN.length>0){rv(FN,[]);}});
 })();
 
