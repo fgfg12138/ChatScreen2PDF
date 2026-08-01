@@ -1680,6 +1680,35 @@ TZ.addEventListener('change',function(){if(FN.length>0){rv(FN,[]);}});
     a.textContent = text;
     return a;
   }
+  function genFromHistory(job, kind, btn) {
+    if (!job || !job.job_id) return;
+    var label = { pdf: '生成 PDF', word: '生成 Word', images: '生成图片ZIP' }[kind] || kind;
+    var apiBase = job.type === 'video' ? '/api/video/jobs/' : (job.type === 'long' ? '/api/long/jobs/' : '/api/pdf/jobs/');
+    var url = apiBase + encodeURIComponent(job.job_id) + (kind === 'pdf' ? '/pdf' : kind === 'word' ? '/word' : '/images-zip');
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btn.textContent = label + '中...';
+    fetch(url, { method: 'POST', body: new FormData() })
+      .then(function (r) { if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || '生成失败'); }); return r.json(); })
+      .then(function () {
+        btn.textContent = '已生成，刷新中...';
+        setTimeout(refresh, 800);
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.textContent = '重试';
+        alert('生成失败: ' + err.message);
+      });
+  }
+  function actionButton(text, job, kind) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'hist-link';
+    b.textContent = text;
+    b.onclick = function () { genFromHistory(job, kind, b); };
+    return b;
+  }
   function render(jobs) {
     count.textContent = jobs.length > 0 ? '（' + jobs.length + ' 个）' : '';
     if (jobs.length === 0) {
@@ -1716,6 +1745,20 @@ TZ.addEventListener('change',function(){if(FN.length>0){rv(FN,[]);}});
       }
       if (job.has_images_zip) {
         right.appendChild(makeLink('下载图片ZIP', '/api/video/jobs/' + encodeURIComponent(job.job_id) + '/images-zip/download'));
+      }
+      // 处理完成但尚未生成对应文件的任务：提供“生成”入口（可恢复后补生成）
+      var feat = window.APP_FEATURES || {};
+      var wordEnabled = !!feat.word;
+      var zipEnabled = !!feat.video_image_zip;
+      var canExport = job.status === 'done' || job.status === 'pdf_done';
+      if (!job.has_pdf && job.status === 'done' && (job.type === 'video' || job.type === 'long')) {
+        right.appendChild(actionButton('生成 PDF', job, 'pdf'));
+      }
+      if (wordEnabled && !job.has_word && canExport) {
+        right.appendChild(actionButton('生成 Word', job, 'word'));
+      }
+      if (zipEnabled && job.type === 'video' && !job.has_images_zip && canExport) {
+        right.appendChild(actionButton('生成图片ZIP', job, 'images'));
       }
       if (job.error) {
         var err = document.createElement('span');
