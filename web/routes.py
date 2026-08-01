@@ -113,7 +113,7 @@ TEMP_ROOT.mkdir(parents=True, exist_ok=True)
 JOBS_DIR = TEMP_ROOT / "jobs"
 _persist_enabled = False
 _jobs_lock = threading.Lock()
-JOB_RETENTION_SECONDS = 7 * 24 * 3600
+JOB_RETENTION_SECONDS = 24 * 3600
 
 
 def _register_job(job_id: str, job: dict) -> None:
